@@ -1,0 +1,15 @@
+// $Id: CHANGELOG.txt,v 1.1 2008/10/26 15:20:04 sun Exp $
+
+Comment Display x.x-x.x, xxxx-xx-xx
+-----------------------------------
+
+
+Comment Display 6.x-1.x, xxxx-xx-xx
+-----------------------------------
+
+
+Comment Display 6.x-1.0, 2008-10-26
+-----------------------------------
+Initial release of Comment Display.
+
+

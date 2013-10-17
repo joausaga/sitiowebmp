@@ -1,0 +1,59 @@
+<?php
+
+function prog_gallery_schema() {
+	$schema['prog_gallery'] = array(
+		'fields' => array(
+			'g_nid' => array(
+				'type' => 'int',
+				'not null' => True,
+				'default' => 0,
+			),
+			'thumb' => array(
+				'type' => 'varchar',
+				'not null' => True,
+				'default' => '',
+				'length' => 128,
+			),
+		),
+		'primary key' => array('g_nid'),
+	);
+	$schema['prog_gallery_images'] = array(
+		'fields' => array(
+			'i_nid' => array(
+				'type' => 'int',
+				'not null' => True,
+				'default' => 0,
+			),
+			'g_nid' => array(
+				'type' => 'int',
+				'not null' => True,
+				'default' => 0,
+			),
+			'weight' => array(
+				'type' => 'int',
+				'not null' => True,
+				'default' => 0,
+			),
+			'exif_date' => array(
+				'type' => 'varchar',
+				'not null' => True,
+				'default' => '0',
+				'length' => 14,
+			),
+		),
+		'primary key' => array('i_nid'),
+	);
+	return $schema;
+}
+
+function prog_gallery_install() {
+	// install schema
+	drupal_install_schema('prog_gallery');
+}
+
+function prog_gallery_uninstall() {
+	// remove schema
+	drupal_uninstall_schema('prog_gallery');
+	// and variables
+	db_query("DELETE FROM {variable} WHERE name LIKE '%prog_gallery%'");
+}

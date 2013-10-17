@@ -1,0 +1,12 @@
+name = User Mailman Register 
+description = "This is a module for mailman subscribing which extends the Mailman manager module features."
+package = MailmanManager
+core = 6.x
+dependencies[] = mailman_manager
+
+; Information added by drupal.org packaging script on 2013-05-15
+version = "6.x-2.3"
+core = "6.x"
+project = "user_mailman_register"
+datestamp = "1368623716"
+

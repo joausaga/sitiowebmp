@@ -1,0 +1,1479 @@
+<?php
+// Image Gallery Management Functionality 6.x
+// name = "imgtax"
+// description = "Pa' Gozar."
+// core = "6.x"
+// version = "6.x-1.1"
+//
+
+define(IMGTAX_WRAPPER,'ahah-will-replace-this-stuff');
+define(IMGTAX_NO_SELECTION,'<default>');
+define(IMGTAX_DEBUG_TEXT_FIELD,FALSE);
+define(IMGTAX_DEBUG_FORMS,FALSE);
+// Path to cb for handling new gallery choice
+define(IMGTAX_AHAH_GALLERY_PATH,'admin/content/imgtax/ahah/gallery');
+define(IMGTAX_AHAH_CHECK_ALL_PATH,'admin/content/imgtax/ahah/checkall');
+define(IMGTAX_AHAH_COMMENTS_PATH,'admin/content/imgtax/ahah/commentson');
+// Path to cb for handling new category choice
+define(IMGTAX_AHAH_ACTION_PATH,'admin/content/imgtax/ahah/action');
+define(IMGTAX_AHAH_SUBMIT_PATH,'admin/content/imgtax/ahah/commit');
+define(IMGTAX_MENU_PATH,'admin/content/imgtax/admin');
+define(IMGTAX_TEXT_FORM_FIELD,'imgtax-Text-Body');
+
+define(IMGTAX_MENU_ACTION_MOVE_IMAGES,'move');
+define (IMGTAX_MENU_ACTION_ADD_CATEGORY,'add_cat');
+define (IMGTAX_MENU_ACTION_REMOVE_CATEGORY,'remove_cat');
+define (IMGTAX_MENU_ACTION_DELETE_IMAGES,'delete');
+define (IMGTAX_MENU_ACTION_CHANGE_PARENT,'reparent');
+define (IMGTAX_MENU_ACTION_SHOW_IMAGES,'show');
+
+define(IMGTAX_STATE_VALIDATE,'validate'); 
+define(IMGTAX_STATE_START,'start'); 
+define(IMGTAX_STATE_CANCEL,'cancel'); 
+define(IMGTAX_STATE_SAVE,'save'); 
+
+define(IMGTAX_CANCEL_BUTTON,'cancel');
+define(IMGTAX_SAVE_BUTTON,'save');
+
+define(IMGTAX_ADMIN_PERMS,'edit imgtax admin');
+define(IMGTAX_ACCESS_PERMS,'access imgtax content');
+define(IMGTAX_CONTENT_PERMS,'edit imgtax content');
+
+function imgtax_dbg(&$form,$var) {
+    if (IMGTAX_DEBUG_TEXT_FIELD) {
+    ob_start();
+    var_dump($var);
+    $debug_text = ob_get_clean();
+    $form['imgtax']['debug'] = array(
+      '#type' => 'textarea',
+      '#name' => 'Debug-Text-Body',
+      '#title' => t('Stuff in the form'),
+      '#default_value' => $debug_text);
+    }    
+}
+
+function imgtax_dbg_msg($msg,$var) {
+    if (IMGTAX_DEBUG_FORMS) {
+        ob_start();
+        var_dump($var);
+        $debug_text = ob_get_clean();
+        drupal_set_message('<pre>'.$msg.$debug_text.'</pre>');
+    }
+}
+
+function imgtax_cb_validate(&$form,&$form_state) {
+}
+
+function imgtax_cb_submit(&$form,&$form_state) {
+    global $imgtax_action_functions;
+    global $imgtax_action_array;
+    global $imgtax_state;
+    imgtax_dbg_msg("submit cb: form_state ",$form_state);
+    imgtax_dbg_msg("submit cb: post ",$_POST);
+    // Save any clicked nids in form_state
+    $imgtax_state = _imgtax_get_storage($form_state);
+    if ($imgtax_state->button_name == IMGTAX_CANCEL_BUTTON) {
+        $form_state['storage']['imgtax_state'] = IMGTAX_STATE_START;
+        drupal_set_message($imgtax_action_array[$imgtax_state->action].' operation has been cancelled.');
+        return;
+    }
+    if ($imgtax_state->button_name == IMGTAX_SAVE_BUTTON) {
+        if ($form_state['storage']['imgtax_state'] == IMGTAX_STATE_START) {
+            $form_state['storage']['imgtax_state'] = 
+                IMGTAX_STATE_VALIDATE;
+            $form_state['storage']['source_nids'] = 
+                _imgtax_get_nids_from_imagelist($form_state);                
+            $form_state['storage']['source_tid'] = 
+                $form_state['clicked_button']['#post']['source_gallery']; 
+            $form_state['storage']['target_tid'] = 
+                $form_state['clicked_button']['#post']['target_tid'];
+        }
+        else
+            $form_state['storage']['imgtax_state'] = 
+                IMGTAX_STATE_SAVE;
+    }
+    $imgtax_state = _imgtax_get_storage($form_state);    
+    if (count($imgtax_state->source_nids) <=0) {
+        form_set_error('Error','You have not selected any images!');
+        $form_state['storage']['imgtax_state'] = IMGTAX_STATE_START;
+        return;        
+    }
+    
+}
+
+/**
+ * usage:
+ * use this to get($form_state,
+ *     $imgtax_state,$source_tid,$target_tid,&$target_nids,$target_gallery,$source_gallery)
+ *
+ * @param drupal $form_state struct
+ * 
+ * @returns standard class with the following:
+ *  
+ *  
+ * 
+ */
+function _imgtax_get_storage($form_state) {
+  $rv = new stdClass();
+    
+  $st = $form_state["storage"];  
+  $b = $form_state['clicked_button'];
+  // $post = $b['#post'];
+  $post = $_POST;
+  $rv->imgtax_state = $st["imgtax_state"];
+  $rv->action = $st['action'];
+  $rv->source_tid = $st['source_tid'];
+  $rv->target_tid = $st['target_tid'];
+  $rv->source_nids = $st["source_nids"];
+  $rv->show_comments = $st['show_comments'];
+  $rv->target_dir = $st['target_dir'];
+  
+  $rv->button_name = $b['#name'];
+  if (isset($post['action1'])) {
+    $rv->action = $post['action1'];      
+  }
+  if (isset($post['imgtax']['manager']['target_dir'])) {
+      $rv->target_dir = $post['imgtax']['manager']['target_dir'];
+  }
+  if (isset($post['imgtax']['imagelist'])) {
+      $checknids = array_keys($post['imgtax']['imagelist']);
+      $rv->source_nids = array();
+      foreach ($checknids as $checknid) {
+          $rv->source_nids[] = str_replace('check_','',$checknid); 
+      }
+  }  
+  $rv->post_form_build_id = $post['form_build_id'];
+
+  return $rv;
+}
+
+function _imgtax_name_from_tid($tid) {
+    /*$imgtax_tid = $tid;
+    $gallery_query = db_query("SELECT td.name FROM {term_data} td WHERE td.tid=%d", $tid);
+    $imgtax_tid_name = db_fetch_object($gallery_query)->name;
+    return $imgtax_tid_name;*/
+    return taxonomy_get_term($tid)->name;        
+}
+
+function _imgtax_get_nids_from_imagelist($form_state) {
+    $nid_ar = $form_state['clicked_button']['#post']['imgtax']['imagelist'];
+    $keys = array_keys($nid_ar);
+    $nids = array();
+    foreach ($keys as $key) {
+        $nids[] = str_replace('check_','',$key);    
+    }
+    return $nids;
+}
+
+function _imgtax_start(&$form_state) {
+    global $imgtax_state;
+    $imgtax_state = _imgtax_get_storage($form_state);
+    if ($imgtax_state->action == NULL) {
+        $imgtax_state->action = $form_state['storage']['action'] = 
+        IMGTAX_MENU_ACTION_MOVE_IMAGES;                
+    }
+    $selection = "";
+    if ($imgtax_state->source_tid == NULL) {
+        $selection = IMGTAX_NO_SELECTION;
+        _imgtax_get_image_gallery_array($selection);
+        $form_state['storage']['source_tid'] = 
+           $imgtax_state->source_tid = $selection;
+    } else {
+        $selection = $imgtax_state->source_tid;  
+    }
+    
+    $form = _imgtax_create_basic_form($selection,$imgtax_state->action);
+    if (($imgtax_state->action == IMGTAX_MENU_ACTION_ADD_CATEGORY) ||
+        ($imgtax_state->action == IMGTAX_MENU_ACTION_REMOVE_CATEGORY))
+        _imgtax_get_taxonomy_form($form);
+    else if ($imgtax_state->action == IMGTAX_MENU_ACTION_MOVE_IMAGES) {
+        $sel = IMGTAX_NO_SELECTION;
+        $opts = _imgtax_get_image_gallery_array($sel,$selection);
+        $form['imgtax']['manager']['target'] = array (
+            '#type' => 'select',
+            '#name' => 'target_tid',
+            '#title' => t('Target Image Gallery'), 
+            '#default_value' => $sel ,
+            '#options' => $opts, //array('choice1','choice2'),
+            '#description' => 
+        t('Choose the target gallery for your images.'),
+        );        
+     }
+    else if ($imgtax_state->action == IMGTAX_MENU_ACTION_DELETE_IMAGES) {
+        
+    } else if ($imgtax_state->action == IMGTAX_MENU_ACTION_CHANGE_PARENT) {
+        _imgtax_get_dir_text_field($form);    
+    }
+     _imgtax_get_checkbox_list($form,$selection);
+    _imgtax_add_commit_button($form,"Save",IMGTAX_SAVE_BUTTON);
+    
+    return $form;
+}
+
+function _imgtax_add_cat_validate(&$form_state) {
+    global $imgtax_state;
+    $tid = $imgtax_state->target_tid;
+    $alltids = _imgtax_get_non_gallery_tax();    
+    
+    // $form = _imgtax_create_basic_form($selection,$action);
+    $form = _imgtax_create_top_fieldset();
+    $form['imgtax']['manager']['validate'] = array(
+        '#value' => "<p>Are you sure you want to add the tag '".$alltids[$tid]."' to ".
+          count($imgtax_state->source_nids).' images from \''.
+          _imgtax_name_from_tid($imgtax_state->source_tid).'?</p>',
+    );
+
+    _imgtax_get_checkbox_list($form,$imgtax_state->source_tid,FALSE);
+    $nids = $imgtax_state->source_nids;
+    foreach ($nids as $nid) {
+        $form['imgtax']['imagelist']['check_'.$nid]['#default_value'] = TRUE; 
+    }
+    _imgtax_add_commit_button($form,"Save",'save',TRUE);
+    return $form;    
+}
+
+function _imgtax_remove_cat_validate(&$form_state) {
+    global $imgtax_state;
+    $tid = $imgtax_state->target_tid;
+    $alltids = _imgtax_get_non_gallery_tax();    
+    
+    // $form = _imgtax_create_basic_form($selection,$action);
+    $form = _imgtax_create_top_fieldset();
+    $form['imgtax']['manager']['validate'] = array(
+        '#value' => "<p>Are you sure you want to remove the tag '".$alltids[$tid]."' from ".
+          count($imgtax_state->source_nids).' images in \''.
+          _imgtax_name_from_tid($imgtax_state->source_tid).'?</p>',
+    );
+
+    _imgtax_get_checkbox_list($form,$imgtax_state->source_tid,FALSE);
+    $nids = $imgtax_state->source_nids;
+    foreach ($nids as $nid) {
+        $form['imgtax']['imagelist']['check_'.$nid]['#default_value'] = TRUE; 
+    }
+    _imgtax_add_commit_button($form,"Save",'save',TRUE);
+    return $form;    
+}
+
+function _imgtax_reparent_validate(&$form_state) {
+    global $imgtax_state;
+    $selection = $imgtax_state->source_tid;
+    $form_state['storage']['target_dir'] = $imgtax_state->target_dir;
+    
+    // $form = _imgtax_create_basic_form($selection,$action);
+    $form = _imgtax_create_top_fieldset();
+    $exists = is_dir($imgtax_state->target_dir);
+    if ($exists) {
+        $form['imgtax']['manager']['validate'] = array(
+            '#value' => '<p>Are you sure you want to move '.
+              count($imgtax_state->source_nids).' images to \''.
+              $imgtax_state->target_dir.'\' ? </p>'
+        );        
+    } else {
+        $form['imgtax']['manager']['validate'] = array(
+            '#value' => '<p><b>'.$imgtax_state->target_dir.
+               ' does not exist.</b> Attempt to create '.$imgtax_state->target_dir.
+               ' and move '.
+              count($imgtax_state->source_nids).' images to \''.
+              $imgtax_state->target_dir.'\' ? </p>'
+        );
+    }
+    _imgtax_get_checkbox_list($form,$selection,FALSE);
+    $nids = $imgtax_state->source_nids;
+    foreach ($nids as $nid) {
+        $form['imgtax']['imagelist']['check_'.$nid]['#default_value'] = TRUE; 
+    }
+    _imgtax_add_commit_button($form,"Save",'save',TRUE);
+    return $form;
+}
+
+/**
+ * The user has asked to move a valid set of images.  Create the
+ * confirmation form.
+ *
+ * @param drupal form array $form_state
+ * @return drupal form
+ */
+function _imgtax_move_validate(&$form_state) {
+    global $imgtax_state;
+    $selection = $imgtax_state->source_tid;
+    
+    // $form = _imgtax_create_basic_form($selection,$action);
+    $form = _imgtax_create_top_fieldset();
+    $orphan_source = FALSE;
+    
+        $orphan_source = TRUE;
+    if (($imgtax_state->target_tid) != '0') {
+        if ($imgtax_state->source_tid != '0') {
+            $form['imgtax']['manager']['validate'] = array(
+                '#value' => '<p>Are you sure you want to move '.
+                  count($imgtax_state->source_nids).' images from \''.
+                  _imgtax_name_from_tid($imgtax_state->source_tid).'\' to \''.
+                  _imgtax_name_from_tid($imgtax_state->target_tid).'\'? </p>',
+        );
+        } else {
+            $form['imgtax']['manager']['validate'] = array(
+                '#value' => '<p>Are you sure you want to move '.
+                  count($imgtax_state->source_nids).' images to \''.
+                  _imgtax_name_from_tid($imgtax_state->target_tid).'\'? </p>',);            
+        }
+    } else {
+        $form['imgtax']['manager']['validate'] = array(
+            '#value' => '<p>Are you sure you want to orphan '.
+              count($imgtax_state->source_nids).' images from \''.
+              _imgtax_name_from_tid($imgtax_state->source_tid).'\'? </p>',
+        );        
+    }
+    
+    _imgtax_get_checkbox_list($form,$selection,FALSE);
+    $nids = $imgtax_state->source_nids;
+    foreach ($nids as $nid) {
+        $form['imgtax']['imagelist']['check_'.$nid]['#default_value'] = TRUE; 
+    }
+    _imgtax_add_commit_button($form,"Save",'save',TRUE);
+    return $form;
+}
+
+function _imgtax_recheck_all(&$form) {
+    global $imgtax_state;
+    $nids = $imgtax_state->source_nids;
+    if (isset($imgtax_state->source_nids) && (is_array($imgtax_state->source_nids))) {
+        foreach ($nids as $nid) {
+            $form['imgtax']['imagelist']['check_'.$nid]['#default_value'] = TRUE; 
+        }
+    }    
+}
+
+/**
+ * The user has asked to move a valid set of images.  Create the
+ * confirmation form.
+ *
+ * @param drupal form array $form_state
+ * @return drupal form
+ */
+function _imgtax_delete_validate(&$form_state) {
+    global $imgtax_state;
+    $selection = $imgtax_state->source_tid;
+    
+    // $form = _imgtax_create_basic_form($selection,$action);
+    $form = _imgtax_create_top_fieldset();
+    $form['imgtax']['manager']['validate'] = array(
+        '#value' => '<p>Are you sure you want to delete '.
+          count($imgtax_state->source_nids).' images from \''.
+          _imgtax_name_from_tid($imgtax_state->source_tid).'\'</p>'
+    );
+    _imgtax_recheck_all($form);
+    _imgtax_get_checkbox_list($form,$selection,FALSE);
+    _imgtax_add_commit_button($form,"Save",'save',TRUE);
+    return $form;
+}
+
+function _imgtax_cancel(&$form_state) {
+    global $imgtax_action_array;
+    global $imgtax_state;
+    drupal_set_message($imgtax_action_array[$imgtax_state->action].' operation was cancelled');
+    $form_state['submitted'] = false;
+    unset($form_state['storage']);
+    return imgtax_cb($form_state);
+}
+
+
+function _imgtax_reparent_save(&$form_state) {
+    global $imgtax_state;
+    $dest = $imgtax_state->target_dir;
+    if (!is_dir($dest))
+        mkdir($dest,NULL,TRUE);
+    
+    $error = FALSE;
+    foreach ($imgtax_state->source_nids as $nid) {
+        if ($error)
+            break;
+        $query = 'SELECT f.filepath,f.fid FROM {files} f, {image} i'.
+              ' WHERE i.nid='.$nid.' AND f.fid=i.fid';
+        $result = db_query($query);
+        while ($row = db_fetch_object($result)) {
+            $fn = basename($row->filepath);
+            $error = !(copy($row->filepath,$dest.'/'.$fn));
+            if ($error)
+                break;
+            $uq = 'UPDATE {files} SET filepath="'.$dest.'/'.$fn.'" WHERE fid='.$row->fid;
+            $error = !((boolean) db_query($uq));
+            unlink($row->filepath);
+        }
+    }            
+    if ($error) {
+        drupal_set_message("ERROR: move image files failed!");
+    }
+    unset( $form_state['storage']['imgtax_state']);
+    return imgtax_cb($form_state);        
+}
+
+function _imgtax_move_save(&$form_state) {
+    global $imgtax_state;
+    foreach ($imgtax_state->source_nids as $nid) {
+        if ($imgtax_state->target_tid != '0') {
+            $query = "UPDATE {term_node} SET tid='".$imgtax_state->target_tid."' WHERE nid='".$nid."' AND tid='".$imgtax_state->source_tid."'";
+            $result = db_query($query);
+        } else {
+            $query = "DELETE FROM {term_node} WHERE tid=".$imgtax_state->source_tid." AND nid=".$nid;
+            $result = db_query($query);
+        }
+    }        
+    $form_state['storage']['imgtax_state'] = IMGTAX_STATE_START;
+    $form_state['storage']['source_tid'] = $imgtax_state->target_tid;
+    return imgtax_cb($form_state);
+}
+
+function _imgtax_add_cat_save(&$form_state) {
+    global $imgtax_state;
+    foreach ($imgtax_state->source_nids as $nid) {
+        $query = 'SELECT tid FROM {term_node} WHERE nid='.$nid.' AND tid='.$imgtax_state->target_tid;
+        imgtax_dbg_msg('add cat: query=',$query);
+        $result = db_query($query);
+        $update_tid = db_fetch_object($result)->tid;
+        if ($update_tid) {
+            $query = "UPDATE {term_node} SET tid='".$imgtax_state->target_tid."' WHERE nid='".$nid."' AND tid='".$update_tid."'";   
+            $result = db_query($query);
+        } else {
+            $query = 'SELECT vid FROM {node} WHERE nid='.$nid;
+            $result = db_query($query);
+            $vid = db_fetch_object($result)->vid;
+            $query = "INSERT INTO {term_node} (nid,vid,tid) VALUES (".$nid.",".
+                  $vid.",".$imgtax_state->target_tid.")";        
+            imgtax_dbg_msg('add cat: insert=',$query);
+            $result = db_query($query);
+        }
+    }
+    unset( $form_state['storage']['imgtax_state']);
+    $form_state['storage']['source_tid'] = $imgtax_state->source_tid;
+    return imgtax_cb($form_state);    
+}
+
+function _imgtax_remove_cat_save(&$form_state) {
+    global $imgtax_state;
+    foreach ($imgtax_state->source_nids as $nid) {
+        $query = 'DELETE FROM {term_node} WHERE nid='.$nid.' AND tid='.$imgtax_state->target_tid;
+        imgtax_dbg_msg('del cat: query=',$query);
+        $result = db_query($query);
+    }
+    unset( $form_state['storage']['imgtax_state']);
+    return imgtax_cb($form_state);    
+}
+
+function _imgtax_delete_save(&$form_state) {
+    global $imgtax_state;
+    $imgtax_state = _imgtax_get_storage($form_state);
+    foreach ($imgtax_state->source_nids as $nid) {
+        node_delete($nid);
+    }        
+    $form_state['storage']['imgtax_state'] = IMGTAX_STATE_START;
+    return imgtax_cb($form_state);
+}
+
+/**
+ * Here is our menu callback function (see menu_hook).
+ * Just create a simple form with a single button.
+ * @return drupal form array
+ */
+function imgtax_cb(&$form_state) {
+    global $imgtax_state;
+    imgtax_dbg_msg("main cb: form_state ",$form_state);
+    
+    $imgtax_state = _imgtax_get_storage($form_state);    
+    imgtax_dbg_msg('imgtax_cb: imgtax_state is ',$imgtax_state);
+    imgtax_dbg_msg('Post ',$_GET);
+    
+    // Is this the first time we've been here?
+    if (!isset($form_state['storage']['imgtax_state'])) {        
+        $form_state['storage']['imgtax_state'] = IMGTAX_STATE_START;
+        $imgtax_state->imgtax_state = IMGTAX_STATE_START;
+    }
+    $function = '_imgtax_';
+    if ($imgtax_state->imgtax_state != IMGTAX_STATE_START) {
+        $function .= $imgtax_state->action.'_';
+    }
+    $function .= $imgtax_state->imgtax_state;
+    if (function_exists($function)) {
+        return $function($form_state);
+    }
+    else {
+        drupal_set_message('No function named '.$function);
+    }
+    
+    // The first time through the form, or a reset form.
+    return $form;    
+}
+
+function _imgtax_get_orphan_checkbox_list(&$form) {
+    $query = "SELECT i.nid,i.fid FROM {image} i";
+    $rows = db_query($query);
+    while ($row = db_fetch_object($rows)) {
+        $query = "SELECT tid FROM {term_node} WHERE nid=".$row->nid;
+        $result = db_query($query);
+        $orphan = FALSE;
+        while ($row2  = db_fetch_object($result)) {
+            $orphan = TRUE;
+            break;    
+        }
+        if ($orphan == FALSE) {
+            $query = "SELECT filepath FROM {files} WHERE fid=".$row->fid;            
+            $fn = db_result(db_query($query));
+            $basename = basename($fn);
+        $form['imgtax']['imagelist']['check_'.$row->nid] = array(
+            '#prefix'  => '<p>',
+            '#type' => 'checkbox',
+            '#title' => basename($fn),
+        );
+        $form['imgtax']['imagelist']['img_'.$row->nid] = array(
+            '#type' => 'image_button',
+            '#src' => $fn,
+            '#disabled' => true,                 
+        );            
+        }
+    }
+}
+
+function _imgtax_get_image_gallery_tids() {
+    $query = "SELECT vid FROM {vocabulary} v where v.module = 'image_gallery'";
+    $result = db_query($query);
+    $vid = db_fetch_object($result);
+    $query = "SELECT tid FROM term_data td where td.vid='".$vid->vid."'";
+    $result = db_query($query);
+    $tids=array();
+    while ($qtids = db_fetch_object($result)) {
+        $tids[$qtids->tid] = TRUE;    
+    }
+    
+    return $tids;    
+}
+
+function _imgtax_get_comments($nid) {
+    $node = node_load($nid);
+    $rv = '';
+    $query = 'SELECT * FROM {comments} WHERE nid='.$nid.' AND pid=0';
+    $result = db_query($query);
+    if ($result) {
+        while ($comment = db_fetch_object($result)) {
+            $rv .= '<p>'.$comment->comment.'</p>';        
+        }
+    }
+    return $rv;
+}
+
+function _imgtax_get_non_gallery_tids($nid) {
+    $imgtids = _imgtax_get_image_gallery_tids();
+    $query = "SELECT tid FROM {term_node} tn where tn.nid = '".$nid."'";
+    $result = db_query($query);
+    $rv = "";
+    $first = TRUE;
+    while ($tid = db_fetch_object($result)) {
+        if (isset($imgtids[$tid->tid])) {
+            continue;
+        }
+        $query = "SELECT name FROM {term_data} td where td.tid='".$tid->tid."'";
+        imgtax_dbg_msg('get tids: query=',$query);
+        $tdresult = db_fetch_object(db_query($query))->name;
+        if ($first == FALSE) {
+            $rv .= ', ';    
+        } else {
+            $rv = 'Current tags: ';
+            $first = FALSE;
+        }
+        $rv .= $tdresult;        
+    }
+    return $rv;    
+}
+
+function _imgtax_sort_comments_first($a,$b) {
+    global $arnids;
+    $querya = 'SELECT cid FROM {comments} WHERE nid='.$a->nid;  
+    $queryb = 'SELECT cid FROM {comments} WHERE nid='.$b->nid;
+    $ra = db_query($querya);  
+    $rb = db_query($queryb);
+    if (db_fetch_object($ra)->cid) {
+        return -1;  
+    }
+    if (db_fetch_object($rb)->cid) {
+        return 1;
+    }
+    return 0;
+}
+
+/**
+ * Draw a checkbox list form with all the elements in a single
+ * gallery.
+ *
+ * @param Drupal form $form
+ * @param string $tid from term_node
+ * @param boolean $enabled if the checkboxes are enabled.
+ */
+function _imgtax_get_checkbox_list(&$form,$tid,$enabled=TRUE) {
+    global $imgtax_state;
+    $css_class = '<div class="image-checkboxes">';
+    if (isset($imgtax_state->show_comments) &&
+        $imgtax_state->show_comments == TRUE) {
+        $css_class = '<div class="image-checkboxes-with-comments">';        
+    } else if ($imgtax_state->action == IMGTAX_MENU_ACTION_CHANGE_PARENT) {
+        $css_class = '<div class="image-checkboxes-with-comments">';                
+    }
+        
+    if ($tid == '0') {
+        return _imgtax_get_orphan_checkbox_list($form);
+    }
+    
+    $form['imgtax']['imagelist']['check_bar'] = array(
+        '#value' => '<hr/><b><i>Select the images to operate on.  Click on an image to add a comment.</i></b>',
+    );
+    $form['imgtax']['imagelist']['check_all'] = array(
+        '#name' => 'checkall',
+        '#type' => 'checkbox',
+        '#title' => 'Check All',
+        '#disabled' => !$enabled,
+        '#default_value' => FALSE,
+        '#ahah' => array(
+            'path' => IMGTAX_AHAH_CHECK_ALL_PATH,
+            'event' => 'click',
+            'wrapper' => IMGTAX_WRAPPER,
+            'progress' => array('effect' => 'fade', 'message' => t('Grinding...')),
+        ),    
+        // '#disabled' => FALSE,
+    );
+    
+    $form['imgtax']['imagelist']['check_none'] = array(
+        '#name' => 'checknone',
+        '#type' => 'checkbox',
+        '#title' => 'Check None',
+        '#disabled' => !$enabled,
+        '#default_value' => FALSE,
+        '#ahah' => array(
+            'path' => IMGTAX_AHAH_CHECK_ALL_PATH,
+            'event' => 'click',
+            'wrapper' => IMGTAX_WRAPPER,
+            'progress' => array('effect' => 'fade', 'message' => t('Grinding...')),
+        ),    
+        // '#disabled' => FALSE,
+    ); 
+    
+    $form['imgtax']['imagelist']['comments_on'] = array(
+        '#name' => 'comments_on',
+        '#type' => 'checkbox',
+        '#title' => 'Show Comments',
+        '#disabled' => !$enabled,
+        '#default_value' => $imgtax_state->show_comments,
+        '#ahah' => array(
+            'path' => IMGTAX_AHAH_COMMENTS_PATH,
+            'event' => 'click',
+            'wrapper' => IMGTAX_WRAPPER,
+            'progress' => array('effect' => 'fade', 'message' => t('Grinding...')),
+        ),    
+        // '#disabled' => FALSE,
+    );
+        
+    $query = "SELECT f.filepath,i.nid FROM {files} f,{term_node} t,{image} i WHERE t.tid=".$tid." and i.nid=t.nid and i.fid=f.fid and i.image_size='thumbnail'";
+    $files = db_query($query);
+    $rows = array();
+    while ($file = db_fetch_object($files)) {
+        $rows[] = $file;    
+    }
+    usort($rows,_imgtax_sort_comments_first);
+    
+    $nids = array();
+    foreach ($rows  as $row) {
+        $nids[] = $row->nid;
+        $basename = basename($row->filepath);
+        $form['imgtax']['imagelist']['prefix_'.$row->nid] = array(
+             '#value' => $css_class.'<p/>');
+        
+        $form['imgtax']['imagelist']['img_'.$row->nid] = array(
+            '#value'  => '<a href="?q=node/'.
+                          $row->nid.'" target="_blank"><img src="'.$row->filepath.'"/></a>',
+        );
+        $form['imgtax']['imagelist']['check_'.$row->nid] = array(
+            '#type' => 'checkbox',
+            '#title' => str_replace('.thumbnail','',basename($row->filepath)),
+            '#disabled' => !$enabled,
+            '#default_value' => FALSE,
+            // '#disabled' => FALSE,
+        );
+        if (($imgtax_state->action == IMGTAX_MENU_ACTION_ADD_CATEGORY) ||
+            ($imgtax_state->action == IMGTAX_MENU_ACTION_REMOVE_CATEGORY)) { 
+            $form['imgtax']['imagelist']['tag_'.$row->nid] = array(
+                '#value'  => '<p>'._imgtax_get_non_gallery_tids($row->nid).'</p>',
+            );
+        }
+        else if ($imgtax_state->action == IMGTAX_MENU_ACTION_CHANGE_PARENT) {
+            $form['imgtax']['imagelist']['tag_'.$row->nid] = array(
+                '#value'  => '<p>Current dir: '._imgtax_get_directory_from_nid($row->nid).'</p>',
+            );            
+        }
+        else 
+            unset($form['imgtax']['imagelist']['tag_'.$row->nid]);
+            
+        $comment_text = '';
+        $comment_text = _imgtax_get_comments($row->nid);
+        if (($comment_text) && ($imgtax_state->show_comments)) {
+            $form['imgtax']['imagelist']['comment_'.$row->nid] = array(
+                '#value'  => '<p>'._imgtax_get_comments($row->nid).'</p>',
+        );
+        }
+        
+        $form['imgtax']['imagelist']['suffix_'.$row->nid] = array(
+             '#value' => '</div><p/>');
+    }
+    return $nids;
+}
+
+/**
+ * During ahah cb, get the form and form imgtax_state from
+ * the cache
+ *
+ * @param $form
+ * @param $form_state
+ */
+function _imgtax_ahah_get_cached_forms(&$form,&$form_state) {
+    $form_state = array('submitted' => FALSE);
+    $form_build_id = $_POST['form_build_id'];
+    $form = form_get_cache($form_build_id, $form_state);    
+}
+
+/**
+ * During ahah cb, save form changes 
+ * the cache
+ *
+ * @param $form
+ * @param $form_state
+ */
+function _imgtax_ahah_set_cached_forms($form,$form_state) {
+    $form_build_id = $_POST['form_build_id'];
+    form_set_cache($form_build_id, $form, $form_state);    
+}
+
+function _imgtax_ahah_get_directory ($tid) {
+    $dirname = db_result(db_query("SELECT td.name FROM {term_data} td WHERE td.tid=%d", $tid));
+    
+    // Munge the gallery name so it is a valid and reasonable dirname.
+    $dest = file_directory_path();
+
+    $dirname = str_replace(" ", "_", $dirname);
+    $dirname = str_replace(" ", "_", $dirname);
+    $special_chars = array (
+        ";",
+        ":",
+        "/",
+        "\\",
+        ".",
+        "'",
+        "\"",
+        "%",
+        );
+
+    $dirname = str_replace($special_chars, "_", $dirname);
+    $dest = $dest . '/' . $dirname;
+    
+    return $dest;   
+}
+
+function _imgtax_get_directory_from_nid($nid) {
+    $query = 'SELECT f.filepath FROM {image} i, {files} f WHERE i.nid='.$nid.' AND f.fid=i.fid AND i.image_size="_original"';
+    return dirname(db_result(db_query($query)));
+}
+
+function _imgtax_get_dir_text_field(&$form) {
+    global $imgtax_state;
+    $form['imgtax']['manager']['target_dir'] = array (
+        '#type' => 'textfield',
+        '#title' => t('File Destination'),
+        '#default_value' => _imgtax_ahah_get_directory($imgtax_state->source_tid),        
+    );            
+}
+function imgtax_action_to_perform_cb () {    
+    global $imgtax_action_array;
+    global $imgtax_state;
+    _imgtax_ahah_get_cached_forms($form,$form_state);
+    $imgtax_state = _imgtax_get_storage($form_state);
+    
+    
+    // If this is ahah cb, $_POST php global contains
+    // info about the form that was posted.
+    $selection = '<default>';
+    if (isset($_POST["source_gallery"])) {
+        $selection = $_POST["source_gallery"];
+    }
+    $nid='';
+    
+    if (isset($_POST["action1"])) {
+        $action = $_POST["action1"]; 
+    }
+
+    $form_part = _imgtax_create_basic_form($selection,$action);
+    _imgtax_get_checkbox_list($form_part,$selection);
+    
+    $form['imgtax']['manager'] = $form_part['imgtax']['manager'];
+    $form_state['storage']['action'] = $_POST['action1'];
+    
+    if ($action == IMGTAX_MENU_ACTION_MOVE_IMAGES) {
+        $sel = '<default>';
+        $opts = _imgtax_get_image_gallery_array($sel,$selection);
+        $form['imgtax']['manager']['target'] = array (
+            '#type' => 'select',
+            '#name' => 'target_tid',
+            '#title' => t('Target Image Gallery'), 
+            '#default_value' => $sel ,
+            '#options' => $opts, //array('choice1','choice2'),
+            '#description' => 
+        t('Choose the target gallery for your images.'),
+            '#ahah' => array(
+                'path' => IMGTAX_AHAH_ACTION_PATH,
+                'event' => 'change',
+                'wrapper' => IMGTAX_WRAPPER,
+                'progress' => array('type' => 'bar', 'message' => t('Grinding...')),
+            ),
+        );        
+        _imgtax_get_checkbox_list($form,$imgtax_state->source_tid,TRUE);
+    }
+    else if ($action == IMGTAX_MENU_ACTION_CHANGE_PARENT) {
+        _imgtax_get_dir_text_field($form);
+        unset( $form['imgtax']['imagelist']);
+        _imgtax_get_checkbox_list($form,$imgtax_state->source_tid,TRUE);
+    }
+    else if (($action == IMGTAX_MENU_ACTION_ADD_CATEGORY) ||
+     ($action == IMGTAX_MENU_ACTION_REMOVE_CATEGORY)) {
+        _imgtax_get_taxonomy_form($form);
+        unset( $form['imgtax']['imagelist']);
+        _imgtax_get_checkbox_list($form,$imgtax_state->source_tid,TRUE);
+    }
+    _imgtax_recheck_all($form);
+    
+    _imgtax_add_commit_button($form,"Save",IMGTAX_SAVE_BUTTON);
+    
+    _imgtax_ahah_debug($form,$form_state);    
+    
+    _imgtax_ahah_set_cached_forms($form, $form_state);
+
+    // Rebuild the form.
+    $form = form_builder($_POST['form_id'], $form, $form_state);
+
+    $output = drupal_render($form);
+    
+    print drupal_to_js(array('data' => $output, 'status' => true));
+    exit();
+}
+
+function imgtax_show_comments_ahah_cb() {
+    global $imgtax_state;
+    _imgtax_ahah_get_cached_forms($form,$form_state);
+
+    $checked = FALSE;
+    if (isset($_POST['comments_on'])) {
+        $checked = TRUE; 
+    }
+    $form_state['storage']['show_comments'] = $checked;
+    
+    $imgtax_state = _imgtax_get_storage($form_state);    
+    $selection = $imgtax_state->source_tid;
+    
+    $form_part = array();
+    _imgtax_get_checkbox_list($form_part,$selection);
+    _imgtax_recheck_all($form_part);
+    
+    $form['imgtax']['imagelist'] = $form_part['imgtax']['imagelist'];
+    
+    _imgtax_ahah_debug($form,$form_state);
+
+    _imgtax_ahah_set_cached_forms($form,$form_state);
+
+    // Rebuild the form.    
+    $form = form_builder($_POST['form_id'], $form, $form_state);
+
+    $output = drupal_render($form);
+    
+    print drupal_to_js(array('data' => $output, 'status' => true));
+    exit();
+}
+
+function imgtax_source_gallery_check_all() {
+    global $imgtax_state;
+    _imgtax_ahah_get_cached_forms($form,$form_state);
+    $imgtax_state = _imgtax_get_storage($form_state);
+    
+    // Retrieve the form info from cache
+    // Add the new element to the stored form. Without adding the element to the
+    // form, Drupal is not aware of this new elements existence and will not
+    // process it. We retreive the cached form, add the element, and resave.
+    $selection = $imgtax_state->source_tid;
+
+    $checked = FALSE;
+    if (isset($_POST['checkall'])) {
+        $checked = TRUE; 
+    }
+    
+    $form_part = array(); //_imgtax_create_basic_form($value,$selection);
+    _imgtax_get_checkbox_list($form_part,$selection);
+    
+    $form['imgtax']['imagelist'] = $form_part['imgtax']['imagelist'];
+    
+    _imgtax_ahah_debug($form,$form_state);
+
+    $nids = _imgtax_get_nids_from_tid($imgtax_state->source_tid);
+    
+    foreach ($nids as $nid) {
+        $form["imgtax"]["imagelist"]['check_'.$nid]['#default_value'] = $checked;
+    }
+
+    // Some debugging, shows you what user returns.
+    // need to munge the form, nice if this was part of core, too...
+    _imgtax_ahah_set_cached_forms($form,$form_state);
+
+    // Rebuild the form.
+    
+    $form = form_builder($_POST['form_id'], $form, $form_state);
+
+    $output = drupal_render($form);
+    
+    print drupal_to_js(array('data' => $output, 'status' => true));
+    exit();
+    }
+
+function _imgtax_ahah_debug(&$form,$form_state) {
+    global $imgtax_state;
+    
+    if (IMGTAX_DEBUG_TEXT_FIELD) {
+        ob_start();
+        var_dump($form_state);
+        $debug_text = ob_get_clean();
+        $form['imgtax']['debug'] = array(
+          '#type' => 'textarea',
+          '#name' => 'Debug-Text-Body',
+          '#title' => t('The form_state'),
+          '#default_value' => $debug_text);    
+        ob_start();
+        var_dump($_POST);
+        $debug_text = ob_get_clean();
+        $form['imgtax']['debugpost'] = array(
+          '#type' => 'textarea',
+          '#name' => 'Debug-Post-Body',
+          '#title' => t('Stuff in $_POST'),
+          '#default_value' => $debug_text);    
+        ob_start();
+        var_dump($form);
+        $debug_text = ob_get_clean();
+        $form['imgtax']['formpost'] = array(
+          '#type' => 'textarea',
+          '#name' => 'Debug-Form-Body',
+          '#title' => t('Stuff in $form'),
+          '#default_value' => $debug_text);    
+        ob_start();
+        var_dump($imgtax_state);
+        $debug_text = ob_get_clean();
+        $form['imgtax']['dbgstate'] =array(
+          '#type' => 'textarea',
+          '#name' => 'Debug-State-Body',
+          '#title' => t('Stuff in $imgtax_state'),
+          '#default_value' => $debug_text);   
+    }       
+}
+
+/**
+ * This is the callback function for the ajax part.
+ * Return the original form, with some updated stuff on
+ * it.
+ */
+function imgtax_source_gallery_ahah_cb() {
+    global $imgtax_state;
+    _imgtax_ahah_get_cached_forms($form,$form_state);
+    $imgtax_state = _imgtax_get_storage($form_state);
+    
+    // If this is ahah cb, $_POST php global contains
+    // info about the form that was posted.
+    if (isset($_POST[IMGTAX_TEXT_FORM_FIELD])) {
+        $value = $_POST[IMGTAX_TEXT_FORM_FIELD];
+    }
+    $selection = '<default>';
+    if (isset($_POST["source_gallery"])) {
+        $selection = $_POST["source_gallery"];
+    }
+
+    $form_part = array(); //_imgtax_create_basic_form($value,$selection);    
+    _imgtax_get_checkbox_list($form_part,$selection);
+    
+    $form['imgtax']['imagelist'] = $form_part['imgtax']['imagelist'];
+    $form['imgtax']['manager']['gallery']['#default_value'] = $selection;
+    $form_state['storage']['source_tid'] = $_POST['source_gallery'];
+    
+    _imgtax_ahah_debug($form,$form_state);
+    // Some debugging, shows you what user returns.
+    // $form = $fields;
+    _imgtax_ahah_set_cached_forms($form,$form_state);
+
+    // Rebuild the form.
+    
+    $form = form_builder($_POST['form_id'], $form, $form_state);
+
+    $output = drupal_render($form);
+    
+    print drupal_to_js(array('data' => $output, 'status' => true));
+    exit();
+}
+
+/**
+ * perm hook...
+ *
+ * @return unknown
+ */
+function imgtax_perm() {
+    return array (
+		IMGTAX_ADMIN_PERMS,
+        IMGTAX_CONTENT_PERMS,
+        IMGTAX_ACCESS_PERMS,
+		);
+}
+
+/** Implementation of menu_hook.  **/
+function imgtax_menu() {
+
+    $items = array();
+    $items[IMGTAX_MENU_PATH] = array(
+    'title' => 'Image Taxonomy Content',
+    'description' => 'Manage Image Galleries and Image Taxonomy.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array ('imgtax_cb'),
+    'access arguments' => array(IMGTAX_ADMIN_PERMS),
+  	'type' => MENU_NORMAL_ITEM
+    );
+
+    $items['imgtax/page'] = array(
+    'title' => 'Image Taxonomy Page',
+    'description' => 'Image-based view of this site.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array ('imgtax_cb'),
+    'access arguments' => array(IMGTAX_ACCESS_PERMS),
+    'type' => MENU_NORMAL_ITEM,
+    );
+
+    /* $items['imgtax/page/ahah_tax'] = array(
+    'title' => 'Gallery',
+    'description' => 'eee.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array (
+    // Again first argument is the callback function.
+            'imgtax_page_tax_ahah_cb'),
+    'access arguments' => array('access imgtax admin'),
+    'type' => MENU_NORMAL_ITEM
+    ); */
+    
+    /**
+     * This is the path in your site to the ajax/ahah callback function
+     * for source image gallery change.
+     */
+    $items[IMGTAX_AHAH_GALLERY_PATH] = array(
+    'title' => 'Gallery',
+    'description' => 'ahah cb.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array (
+    // Again first argument is the callback function.
+            'imgtax_source_gallery_ahah_cb'),
+    'access arguments' => array(IMGTAX_CONTENT_PERMS),
+    'type' => MENU_CALLBACK
+    );
+
+    $items[IMGTAX_AHAH_CHECK_ALL_PATH] = array(
+    'title' => 'Gallery',
+    'description' => 'ahah cb.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array (
+    // Again first argument is the callback function.
+            'imgtax_source_gallery_check_all'),
+    'access arguments' => array(IMGTAX_CONTENT_PERMS),
+    'type' => MENU_CALLBACK
+    );
+    
+    $items[IMGTAX_AHAH_COMMENTS_PATH] = array(
+    'title' => 'Gallery',
+    'description' => 'ahah cb.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array (
+    // Again first argument is the callback function.
+            'imgtax_show_comments_ahah_cb'),
+    'access arguments' => array(IMGTAX_CONTENT_PERMS),
+    'type' => MENU_CALLBACK
+    );
+
+
+    /**
+     * This is the path in your site to the ajax/ahah callback function.
+     * for target action change.
+     */
+    $items[IMGTAX_AHAH_ACTION_PATH] = array(
+    'title' => 'Action',
+    'description' => 'Scale and Upload images <i>en masse</i> from your local machine.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array (
+    // Again first argument is the callback function.
+            'imgtax_action_to_perform_cb'),
+    'access arguments' => array(IMGTAX_CONTENT_PERMS),
+    'type' => MENU_CALLBACK
+    );
+
+    $items[IMGTAX_AHAH_SUBMIT_PATH] = array(
+    'title' => 'Commit',
+    'description' => 'Scale and Upload images <i>en masse</i> from your local machine.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array (
+    // Again first argument is the callback function.
+            'imgtax_commit_cb'),
+    'access arguments' => array(IMGTAX_CONTENT_PERMS),
+    'type' => MENU_CALLBACK
+    );
+
+    return $items;
+}
+
+function _imgtax_get_non_gallery_tax() {
+    global $imgtax_vocabulary_list;
+    if (!isset($imgtax_vocabulary_list)) {
+        $query = "SELECT vid FROM vocabulary v where v.module <> 'image_gallery'";
+        $imgtax_vocabulary_list = array();
+        $vids = db_query($query);
+        while ($vid = db_fetch_object($vids)) {
+            $query = "SELECT tid FROM {term_data} where vid=".$vid->vid;
+            $tids = db_query($query);
+            while ($tid = db_fetch_object($tids)) {
+                $query = "SELECT name FROM {term_data} t where tid=".$tid->tid;
+                $imgtax_vocabulary_list[$tid->tid] = db_result(db_query($query));    
+            }
+        }
+    }
+    return $imgtax_vocabulary_list;
+}
+
+function _imgtax_get_nids_from_tid($tid) {
+    global $imgtax_nids_in_db;
+    if (isset($imgtax_nids_in_db) == FALSE) {
+        $nids = array();
+        $query = "SELECT i.nid FROM {files} f,{term_node} t,{image} i WHERE t.tid=".$tid." and i.nid=t.nid and i.fid=f.fid and i.image_size='thumbnail'";
+        $result = db_query($query);
+        while ($q = db_fetch_object($result)) {
+            $nids[] = $q->nid;
+        }
+        $imgtax_nids_in_db = $nids;
+    }
+    return $imgtax_nids_in_db;    
+}
+
+/**
+ * Pull the rows of the gallery out of the array.  The
+ * index of the arrays is actually the 'tid' of the
+ * images. 
+ *
+ * @param $selection - fill with the valid selection
+ * @param $exclude - exclude this gallery in the list
+ * @return array of strings containing gallery names
+ */
+function _imgtax_get_image_gallery_array(&$selection,$exclude="") {
+    global $imgtax_all_image_galleries;
+    if (!isset($imgtax_all_image_galleries)) {
+        $galleries =
+        db_query("SELECT * FROM {term_data} td,{vocabulary} v where v.module='image_gallery' and v.vid=td.vid order by td.tid DESC");
+    
+        $opts = array ();
+        $tids = array ();
+        $opts[0] = '<orphan>';
+        $default = $selection;
+        while ($gallery = db_fetch_object($galleries)) {
+            $tid = $gallery->tid;
+            $gallery_query = db_query("SELECT td.name FROM {term_data} td WHERE td.tid=%d", $tid);
+            $name = db_fetch_object($gallery_query)->name;
+            $opts[$tid] = $name;
+            if (($exclude != $tid) && ($default == IMGTAX_NO_SELECTION)) {
+                $default = $tid;
+            }
+        }
+        $selection = $default;
+        $imgtax_all_image_galleries = $opts;
+    } else {
+        if ($selection == IMGTAX_NO_SELECTION) {
+            $keys = array_keys($imgtax_all_image_galleries);
+            foreach ($keys as $key) {
+                if (($key != '0') && ($key != $exclude)) {
+                    $selection = $key;
+                    break;
+                }
+            }
+        }
+    }
+    return $imgtax_all_image_galleries ;
+}
+
+function _imgtax_get_taxonomy_form(&$form) {
+    $terms = _imgtax_get_non_gallery_tax();
+    $default = 0;
+    if (count($terms) > 1) {
+        $default = 1;
+    }
+    $form['imgtax']['manager']['target_tid'] = array (
+        '#type' => 'select',
+        '#name' => 'target_tid',
+        '#title' => t('Category'), 
+        '#options' => $terms,
+        '#default' => $default,
+        '#description' => 
+    t('Category to Apply'),);        
+}
+
+function _imgtax_create_top_fieldset() {
+    $form['imgtax'] = array (
+    '#prefix' => '<div id="'.IMGTAX_WRAPPER.'">',
+    '#suffix' => '</div>',
+    '#type' => 'fieldset',
+    '#title' => 'Image Taxonomy Manager', 
+    '#tree' => TRUE,
+    );
+
+    return $form;
+}
+
+function imgtax_theme() {
+ return array(
+    'imgtax_cb' => array(
+      'arguments' => array(
+          'form' => NULL)
+       )                
+    ,  
+    'imgtax_cb2' => array(
+      'arguments' => array('form' => NULL)),
+    );     
+}
+function _imgtax_create_source_image_gallery(&$form,&$selection,$exclude) {
+    $opts = _imgtax_get_image_gallery_array($selection,$exclude);
+
+    $form['imgtax']['manager']['gallery'] = array (
+         // '#theme' => 'imgtax_cb2',
+        '#type' => 'select',
+        '#name' => 'source_gallery',
+        '#title' => t('Source Image Gallery'), 
+        '#default_value' => $selection ,
+        '#options' => $opts, //array('choice1','choice2'),
+        '#description' => 
+    t('Choose the gallery to work with.'),
+        '#ahah' => array(
+            'path' => IMGTAX_AHAH_GALLERY_PATH,
+            'event' => 'change',
+            'wrapper' => IMGTAX_WRAPPER,
+            'progress' => array('type' => 'bar', 'message' => t('Grinding...')),
+    ),
+    );    
+}
+
+
+function imgtax_init() {
+    global $imgtax_action_array;
+    global $imgtax_page_array;
+    $imgtax_action_array = $IMGTAX_ACTION_ARRAY=array(
+           IMGTAX_MENU_ACTION_MOVE_IMAGES =>'Move Images',
+           IMGTAX_MENU_ACTION_ADD_CATEGORY =>'Add Tag',          
+           IMGTAX_MENU_ACTION_REMOVE_CATEGORY =>'Remove Tag',          
+           IMGTAX_MENU_ACTION_DELETE_IMAGES =>'Delete Images',
+           IMGTAX_MENU_ACTION_CHANGE_PARENT => 'Change Image Directory',
+    );
+    $imgtax_page_array = $IMGTAX_PAGE_ARRAY = array(
+           IMGTAX_MENU_ACTION_SHOW_IMAGES => 'Show Images',                    
+    );
+}
+
+function _imgtax_add_commit_button(&$form,$button_name,$form_name,$cancel = FALSE) {
+    if (user_access(IMGTAX_ADMIN_PERMS)) {
+    $form['imgtax']['manager']['button'] = array (
+    '#type' => 'submit',
+    '#name' => $form_name,
+    '#value' => $button_name,
+    '#id' => 'unique-test-id',
+    //'#ahah' => array(
+    //    'path' => IMGTAX_AHAH_SUBMIT_PATH,
+    //    'wrapper' => IMGTAX_WRAPPER,
+    //    'progress' => array('type' => 'bar', 'message' => t('Grinding...')),
+    //),
+    );
+    if ($cancel) {
+    $form['imgtax']['manager']['cancel_button'] = array (
+    '#type' => 'submit',
+    '#name' => 'cancel',
+    '#value' => 'Cancel',
+    '#id' => 'unique-test-id',
+    );
+    }        
+    }
+}
+
+function theme_imgtax_cb($form) {
+    global $imgtax_initial;
+    if (isset($imgtax_initial)) {
+        /* ob_start();
+        var_dump($form);
+        $debug_text = ob_get_clean();
+        drupal_set_message('<pre>'.$debug_text.'</pre>'); */
+        return '<div class="floater">This is where the form goes!</div>';        
+    }
+    $imgtax_initial = TRUE;
+  $output.= drupal_render($form); // Process any other fields and display them
+  return $output;    
+} 
+
+function theme_imgtax_cb2($form) {
+        ob_start();
+        var_dump($form);
+        $debug_text = ob_get_clean();
+        drupal_set_message('<pre>'.$debug_text.'</pre>');
+        return '<div class="floater">This is where the form goes!</div>';        
+} 
+
+/**
+ * Create the form with the image gallery drop-down
+ *
+ * @param sting ref $selection - the name of the selected element
+ * @return Drupal form array
+ */
+function _imgtax_create_basic_form(&$selection='<default>',&$action='1',$exclude="") {
+    global $imgtax_action_array;
+/*    $imgtax_action_array = array (
+           'Move Gallery',
+           'Add Category'); */
+    $form = _imgtax_create_top_fieldset();
+    //$form['imgtax']['manager']['prefix'] = array(
+    //'#value' => '<div class="floater">',
+   // );    
+    _imgtax_create_source_image_gallery($form,$selection,$exclude);
+
+    $form['imgtax']['manager']['action1'] = array (
+        '#type' => 'select',
+    	'#name' => 'action1',
+    	'#title' => t('Action To Perform'), 
+    	'#options' => $imgtax_action_array,
+         '#default_value' => $action,
+    	'#description' => 
+    t('What to do with the selected images'),
+        '#ahah' => array(
+            'path' => IMGTAX_AHAH_ACTION_PATH,
+    	    'event' => 'change',
+            'wrapper' => IMGTAX_WRAPPER,
+            'progress' => array('type' => 'bar', 'message' => t('Grinding...')),
+    ));
+    //$form['imgtax']['manager']['suffix'] = array(
+    //'#value' => '</div>',
+    //);    
+    return $form;
+}
+
+/**
+ * Thanks to Nick Lewis for this:
+ * http://www.nicklewis.org/node/967
+ * Convert our form array into ahah and update the
+ * imgtax_state variables.
+ *
+ * @param $fields - the (array) $form element
+ * @param $name - the (string) name of the form
+ * @return - the output to drupal_to_js.
+ */
+function _imgtax_ahah_render($fields, &$form_state,$name) {
+    $form_state = array('submitted' => FALSE);
+    $form_build_id = $_POST['form_build_id'];
+
+    // Add the new element to the stored form. Without adding the element to the
+    // form, Drupal is not aware of this new elements existence and will not
+    // process it. We retreive the cached form, add the element, and resave.
+    $form = form_get_cache($form_build_id, $form_state);
+    $form[$name][$name2] = $fields;
+    // $form = $fields;
+    form_set_cache($form_build_id, $form, $form_state);
+
+    // Rebuild the form.
+    $form = form_builder($_POST['form_id'], $form, $form_state);
+
+    // Render the new output.
+    $new_form = $form[$name];
+    // $new_form = $form;
+    return drupal_render($new_form);
+}
+
+function imgtax_page_tax_ahah_cb() {
+    $terms = _imgtax_get_non_gallery_tax();
+    $form_state = array('submitted' => FALSE);
+    $form_build_id = $_POST['form_build_id'];
+    $form = form_get_cache($form_build_id, $form_state);
+    $form['imgtax']['page'] = array (
+    '#prefix' => '<div id="'.IMGTAX_WRAPPER.'">',
+    '#suffix' => '</div>',
+    '#type' => 'fieldset',
+    '#title' => 'Image Taxonomy Manager', 
+    '#tree' => TRUE,
+    );
+
+    
+    $form['imgtax']['page']['target_tid'] = array (
+        '#type' => 'select',
+        '#name' => 'target_tid',
+        '#title' => t('Category'), 
+        '#options' => $terms,
+        '#default' => $default,
+        '#description' => 
+    t('Category to Apply'),
+        '#ahah' => array(
+            'path' => 'imgtax/page/ahah_tax',
+            'event' => 'change',
+            'wrapper' => IMGTAX_WRAPPER,
+            'progress' => array('effect' => 'fade', 'message' => t('Grinding...')),
+        ),    
+    );
+    
+    _imgtax_ahah_debug($form,$form_state);
+    // Some debugging, shows you what user returns.
+    // $form = $fields;
+    form_set_cache($form_build_id, $form, $form_state);
+
+    // Rebuild the form.
+    $form = form_builder($_POST['form_id'], $form, $form_state);
+
+    $output = drupal_render($form);
+    
+    print drupal_to_js(array('data' => $output, 'status' => true));
+    exit();    
+}
+
+function imgtax_menu_page() {
+    
+    $terms = _imgtax_get_non_gallery_tax();
+    $default = 0;
+    if (count($terms) > 1) {
+        $default = 1;
+    }
+    $form['imgtax']['page'] = array (
+    '#prefix' => '<div id="'.IMGTAX_WRAPPER.'">',
+    '#suffix' => '</div>',
+    '#type' => 'fieldset',
+    '#title' => 'Image Taxonomy Manager', 
+    '#tree' => TRUE,
+    );
+
+    
+    $form['imgtax']['page']['target_tid'] = array (
+        '#type' => 'select',
+        '#name' => 'target_tid',
+        '#title' => t('Category'), 
+        '#options' => $terms,
+        '#default' => $default,
+        '#description' => 
+    t('Category to Apply'),
+        '#ahah' => array(
+            'path' => 'imgtax/page/ahah_tax',
+            'event' => 'change',
+            'wrapper' => IMGTAX_WRAPPER,
+            'progress' => array('effect' => 'fade', 'message' => t('Grinding...')),
+        ),    
+    );
+
+    $form = form_builder('', $form, $form_state);
+
+    $output = drupal_render($form);
+
+    return $output;
+ }
+
+?>

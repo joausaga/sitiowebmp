@@ -1,0 +1,16 @@
+<?php
+// $Id: imgupload.install,v 1.2 2008/09/28 16:08:10 pre911mindset Exp $
+
+/**
+ * Implementation of hook_install().
+ */
+function imgupload_install() {
+}
+
+/**
+ * Implementation of hook_uninstall().
+ */
+function imgupload_uninstall() {
+
+}
+

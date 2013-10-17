@@ -1,0 +1,18 @@
+; $Id: imgtax.info,v 1.1 2008/10/29 01:08:14 pre911mindset Exp $
+name = "imgtax"
+description = "Image Gallery Manager for Taxonomy"
+dependencies[] = image
+dependencies[] = image_gallery 
+package = Image
+version = 6.1
+core = 6.x
+
+
+
+
+; Information added by drupal.org packaging script on 2008-12-24
+version = "6.x-1.9"
+core = "6.x"
+project = "imgupload"
+datestamp = "1230077426"
+

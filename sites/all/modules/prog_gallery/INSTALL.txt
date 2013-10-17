@@ -1,0 +1,40 @@
+
+Requirements
+------------
+Drupal 5.x
+jQuery Update module (2.x branch) ( http://drupal.org/project/jquery_update )
+Image module ( http://drupal.org/project/image )
+SWFUpload library ( see SWFUpload installation section )
+
+Installation
+------------
+1. Install jquery update properly
+
+2. Copy the entire module directory the Drupal modules directory.
+
+3. Login as an administrator. Enable the module in the Administer >> Build >> Modules. 
+It will create all tables needed on it's own.
+
+
+Installation of SWFUpload library
+------------
+Because of MIT license SWFUpload project has, I cannot put those files into drupal.org 
+repository. Getting project files straight from creators web page also doesn`t solve 
+the problem because module only needs some files from different directories and I have 
+modified one of them (a handlers.js file), so i have put an archive containing files 
+at address http://stuff.prog.lv/prog_gallery/files/swfupload_custompack.zip 
+
+Unpack and put these files in prog_gallery/swfupload directory and it will work right away. 
+
+Uninstallation
+------------
+1. Disable module in Administer >> Build >> Modules
+
+2. Remove data tables in Administer >> Build >> Modules >> Uninstall
+   This will remove gallery tables only. Image nodes will remain intact.
+
+
+Translation
+------------
+You can get latest Latvian translation on address http://l10n.drupal.lv/translate/languages/lv/export
+

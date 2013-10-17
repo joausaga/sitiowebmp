@@ -1,0 +1,2227 @@
+<?php
+
+/**
+ * @file
+ *  Module's php magic happens in this file.
+ */
+
+
+/*
+ * ** TODO **
+ *
+ * port views 1.x support (maybe it is movable 1:1, whoever deals with views, must check out)
+ * code optimisation
+   * drupal_to_js, drupal_add_js, basePath
+ *
+ 
+ * internationalization (tnids etc)
+ * ?q= break image paths when clean urls disabled ( http://drupal.org/node/370469 )
+ * fix comments
+ * replace carousel
+ * taxonomy terms 
+  
+ */
+
+global $_prog_gallery_base;
+$_prog_gallery_base = base_path() . drupal_get_path('module', 'prog_gallery') .'/';
+
+
+
+function prog_gallery_node_info() {
+  return array(
+    'prog_gallery' => array(
+      'name' => t('Gallery'),
+      'module' => 'prog_gallery',
+      'description' => t("Create photo gallery"),
+      'has_body' => FALSE,
+    )
+  );
+}
+
+
+
+
+
+/**
+ * Display help and module information
+ * @param path which path of the site we're displaying help
+ * @param arg array that holds the current path as would be returned from arg() function
+ * @return help text for the path
+ */
+function prog_gallery_help($path, $arg) {
+  $output = '';
+  switch ($path) {
+    case "admin/help#prog_gallery":
+      $output = '<p>'. t("Create image gallery") .'</p>';
+      break;
+  }
+  return $output;
+}// function onthisdate_help
+
+
+
+
+
+/*
+ * Implementation of hook_perm().
+ */
+function prog_gallery_perm() {
+  return array('edit all prog_gallery', 'edit own prog_gallery');
+}
+
+
+
+
+/*
+ * add gallery link to user profile
+ */
+function  prog_gallery_user($op, &$edit, &$account, $category = NULL) {
+  switch ($op) {
+    case 'view':
+      if (user_access('edit all prog_gallery', $account) || (user_access('edit own prog_gallery', $account))) {       
+        $gallery_link = Array(
+          '#type' => 'user_profile_category',
+          '#weight' => 6,
+          '#title' => 'Galleries',
+          'text' => Array(
+            '#type' => 'user_profile_item',
+            '#value' => l(t("View user's galleries"), 'galleries/'. $account->uid)
+          )
+        );
+        $account->content[] = $gallery_link;
+        return array(t('Galleries') => array(array('value' => l(t("View user's galleries"), 'galleries/'. $account->uid), 'class' => 'user')));
+      }
+  }
+}
+
+
+
+
+/*
+ * Implementation of access hook.
+ */
+function prog_gallery_access($op, $node, $account = NULL) {
+  global $user;
+  if (!$account) $account = $user;
+  
+  switch ($op) { 
+    case 'view': 
+      // check if node is published
+      if (($node->status == 0) && ($account->uid != $node->uid) && !user_access('edit all prog_gallery', $account)) return FALSE;
+      // only users with view permission may view.
+      else return user_access('access content', $account);
+    break;
+
+    case 'update':
+    case 'delete':
+      if (user_access('edit all prog_gallery', $account)) {
+        // users with edit permission may edit all
+        return TRUE;
+      }
+      else {
+        // users with edit own permission may edit if same user
+        if (user_access('edit own prog_gallery', $account) && ($account->uid == $node->uid)) {
+          return TRUE;
+        }
+      }
+      return FALSE;
+    break;
+
+    case 'create':
+      if (user_access('edit all prog_gallery', $account) || (user_access('edit own prog_gallery', $account))) {
+        // users with edit permission may edit all
+        return TRUE;
+      }
+      return FALSE;
+    break;
+  }
+}
+
+
+
+
+
+/*
+ * Decide wether user can access node or not (based on session variable)
+ * Idea taken from function swfupload module's _swfupload_user_access function
+ */
+function prog_gallery_session_access($node) {
+  global $user;
+  if (isset($_POST['PHPSESSNAME']) && isset($_POST['PHPSESSID'])) {
+    $result = db_query("SELECT uid FROM {sessions} WHERE sid = '%s'", $_POST['PHPSESSID']);
+    $session = db_fetch_array($result);
+
+    if ($session) $user = user_load(array('uid' => $session['uid']));
+  }
+  
+  return prog_gallery_access("view", $node, $user);
+}
+
+
+
+/*
+ * menu hook
+ */
+function prog_gallery_menu() {
+  global $user;
+  $items = Array();
+
+  // contents tab for gallery nodes and image nodes that are attached to gallery
+  $items['node/%prog_gallery/contents'] = array(
+    'title' => 'Content',
+    'page callback' => 'prog_gallery_tabs',
+    'page arguments' => array(1),
+    'access callback' => 'prog_gallery_access',
+    'access arguments' => array('update', 1),
+    'type' => MENU_LOCAL_TASK
+  );
+
+  $items['node/%prog_gallery/contents/prog_gallery_ajax/upload'] = array(
+    'page callback' => 'prog_gallery_ajax',
+    'page arguments' => array(1),
+    'access callback' => 'prog_gallery_session_access',
+    'access arguments' => array(1),
+    'type' => MENU_CALLBACK,
+  );
+
+  // ajax interface for gallery node
+  $items['node/%prog_gallery/contents/prog_gallery_ajax'] = array(
+    'page callback' => 'prog_gallery_ajax',
+    'page arguments' => array(1),
+    'access callback' => 'prog_gallery_access',
+    'access arguments' => array('view', 1),
+    'type' => MENU_CALLBACK,
+  );
+  $items['node/%prog_gallery/ajax'] = array(
+    'page callback' => 'prog_gallery_ajax',
+    'page arguments' => array(1),
+    'access callback' => 'prog_gallery_access',
+    'access arguments' => array('view', 1),
+    'type' => MENU_CALLBACK,
+  );
+
+  // no-js mode
+  $items['node/%prog_gallery/contents/nojs/newimage'] = array(
+    'page callback' => 'prog_gallery_nojs',
+    'page arguments' => array(1),
+    'access callback' => 'prog_gallery_access',
+    'access arguments' => array('update', 1),
+    'type' => MENU_CALLBACK
+  );
+
+  $items['node/%prog_gallery/import'] = array(
+    'title' => 'Import',
+    'page callback' => 'prog_gallery_import_images',
+    'page arguments' => array(1),
+    'access callback' => 'prog_gallery_access',
+    'access arguments' => array('update', 1),
+    'type' => MENU_LOCAL_TASK,
+    'weight' => 200,
+  );
+
+  // galleries and galleries/my path
+  $items['galleries'] = array(
+    'title' => 'Galleries',
+    'page callback' => 'prog_gallery_gallery_list',
+    'page arguments' => array(1, NULL, NULL, FALSE),
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK
+  );
+  $items['galleries/my'] = array(
+    'title' => 'My galleries',
+    'page callback' => 'prog_gallery_gallery_list',
+    'page arguments' => array(NULL, NULL, NULL, TRUE),
+    'access callback' => 'user_access',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK
+  );
+
+  // system configuration of prog_gallery module
+  $items['admin/settings/prog_gallery'] = array(
+    'title' => 'Prog gallery settings',
+    'description' => t('Administer module settings.'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('prog_gallery_admin_settings'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  $items['admin/settings/prog_gallery/settings'] = array(
+    'title' => 'Settings',
+    'type' => MENU_DEFAULT_LOCAL_TASK,
+    'weight' => -1,
+  );
+
+  $items['admin/settings/prog_gallery/import'] = array(
+    'title' => 'Import Location',
+    'description' => t('Import images from a folder'),
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('prog_gallery_admin_settings_import_images'),
+    'access callback' => 'user_access',
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_LOCAL_TASK,
+  );
+
+  // this menu is remove`able - 
+  if (variable_get('prog_gallery_image_view_alter_edit_tab', 1) == 1)
+    // rewrite edit tab for image nodes that are in gallery
+    $items['node/%prog_gallery_edit/edit'] = array(
+      'title' => 'Edit',
+      'page callback' => 'node_page_edit',
+      'page arguments' => array(1),
+      'access callback' => 'node_access',
+      'access arguments' => array('update', 1),
+      'weight' => 1,
+      'file' => 'node.pages.inc',
+      'file path' => drupal_get_path('module', 'node'),
+      'type' => MENU_LOCAL_TASK,
+    );
+
+  return $items;
+}
+
+/*
+ * theme hook
+ * http://drupal.org/node/165706
+ */
+function prog_gallery_theme() {
+  $items = array(
+    'prog_gallery_teaser' => array('arguments' => array('nid' => NULL, 'title' => NULL, 'node' => NULL)),
+    'prog_gallery_album' => array('arguments' => array('album_content' => NULL, 'node' => NULL)),
+    'prog_gallery_album_image' => array('arguments' => array('album_content' => NULL, 'node' => NULL)),
+    'prog_gallery_gallery_list' => array('arguments' => array('galleries' => NULL)),
+    'prog_gallery_block_contents' => array('arguments' => array('galleries' => NULL)),
+    'prog_gallery_block_links' => array('arguments' => array('delta' => NULL, 'uid' => NULL)),
+  );
+
+  return $items;
+}
+
+/*
+ * A loader to place tabs on my content-type node.
+ * http://drupal.org/node/307510
+ */
+function prog_gallery_load($nid) {
+  $node = node_load($nid);
+
+  if ($node->type == 'prog_gallery') return $node;
+  else if (($node->type == 'image') && prog_gallery_in_gallery($node->nid)) {
+    //$node = node_load(prog_gallery_in_gallery($node->nid));
+    prog_gallery_breadcrumb($node, TRUE);
+
+    return $node;
+  }
+  else return FALSE;
+}
+
+/*
+ * A loader to place edit tabs
+ */
+function prog_gallery_edit_load($nid) {
+  $node = node_load($nid);
+
+  if (($node->type == 'image') && prog_gallery_in_gallery($node->nid)) {
+    $node = node_load(prog_gallery_in_gallery($node->nid));
+    prog_gallery_breadcrumb($node, TRUE);
+
+    return $node;
+  }
+  else return $node;
+}
+
+
+/*
+ * "contents tab" content
+ */
+function prog_gallery_tabs($node) {
+  if ($node->type == 'prog_gallery') return prog_gallery_contents($node);
+  else if (($node->type == 'image') && prog_gallery_in_gallery($node->nid)) {
+    $node = node_load(prog_gallery_in_gallery($node->nid));
+    return prog_gallery_contents($node);
+  }
+  else return $node;
+}
+
+
+/*
+ * form hook.
+ * create new gallery form interface goes here
+ */
+function prog_gallery_form(&$node) {
+
+  // check for gallery image directory. if not - we try to create one automatically
+  $dirpath = variable_get('file_directory_path','sites/default/files') .'/'. variable_get('image_default_path', 'images') .'/temp/';// . date('Y/m/d');
+  if (!file_check_directory($dirpath)) {
+
+    // create directory (recursively)
+    $folders = explode("/", $dirpath);
+    $path = array();
+
+    $ok = TRUE;
+
+    foreach ($folders as $folder) {
+        $path[] = $folder;
+        if (!file_check_directory(implode("/", $path))) $ok = @mkdir(implode("/", $path));
+    }
+
+    if ($ok) drupal_set_message(t('The directory @dirpath did not exist so it has been created.', array('@dirpath' => $dirpath)));
+    else drupal_set_message(t('Contact system administrator: Problem creating "@dirpath". Check permissions or create folder manually!', array('@dirpath' => $dirpath)), 'error');
+  }
+
+  $type = node_get_types('type', $node);
+
+  // We need to define form elements for the node's title and body.
+  $form['title'] = array(
+    '#type' => 'textfield',
+    '#title' => check_plain($type->title_label),
+    '#required' => TRUE,
+    '#default_value' => $node->title,
+    '#weight' => -5
+  );
+
+  $form['#submit'] = Array('prog_gallery_form_submit');
+
+  return $form;
+}
+
+
+/*
+ * submit hook for gallery node
+ */
+function prog_gallery_form_submit($form_id, $form_values) {
+
+  // Save comment setting changes to all image nodes that are in gallery
+  $images = prog_gallery_album_contents($form_values['values']['nid']);
+  foreach ($images as $child) {
+    $child_node = node_load($child['nid']);
+    $child_node->comment = $form_values['values']['comment'];
+    node_save($child_node);
+  }
+}
+
+
+/*
+ * when gallery is created, we insert gallery's variables into prog_gallery table
+ */
+function prog_gallery_insert(&$node) {
+  db_query("INSERT INTO {prog_gallery} (g_nid,thumb) VALUES (%d, 0)", $node->nid);
+  $_REQUEST['destination'] = 'node/'. $node->nid .'/contents';
+}
+
+
+/*
+ * when gallery is deleted, delete node data from module tables also
+ */
+function prog_gallery_delete(&$node) {
+
+  // remove images from gallery
+  $images = prog_gallery_album_contents($node->nid);
+  foreach ($images as $child) {
+    prog_gallery_remove_image_node($node, $child['nid']);
+  }
+
+  // remove gallery entry from table
+  db_query("DELETE FROM {prog_gallery} WHERE g_nid='%d'", $node->nid);
+}
+
+
+
+
+/*
+ * administer prog_gallery system settings
+ */
+function prog_gallery_admin_settings() {
+  $form['prog_gallery']['album_view'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Album view'),
+    '#collapsible' => TRUE,
+    '#collapsed' => FALSE,
+  );
+
+  $form['prog_gallery']['album_view']['image_view'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Image view'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+  );
+
+  $form['prog_gallery']['album_view']['image_view']['theme'] = array(
+    '#type' => 'select',
+    '#title' => t('Image view theme'),
+    '#description' => t("The way image nodes are displayed in gallery"),
+    '#default_value' => variable_get('prog_gallery_image_view_theme', 0),
+    '#options' => array(
+      '0' => t('Default'),
+    ),
+  );
+  
+  $form['prog_gallery']['album_view']['image_view']['theme']['#options']['1'] = 'Original image node';
+  
+  if (module_exists('lightbox2')) {
+    $form['prog_gallery']['album_view']['image_view']['theme']['#options']['2'] = 'Lightbox2';
+  }
+
+  if (variable_get('prog_gallery_image_view_theme', 0) == 2) {
+    $form['prog_gallery']['album_view']['image_view']['lightbox2desc'] = array(
+      '#value' => l('Lightbox2 module settings', 'admin/settings/lightbox2'),
+    );
+  }
+  else if (variable_get('prog_gallery_image_view_theme', 0) == 1) {
+    $form['prog_gallery']['album_view']['image_view']['image_alter_title'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Set title to gallery title'),
+      '#default_value' => variable_get('prog_gallery_image_view_alter_title', 1),
+    );
+    
+    // alter breadcrumb
+    $form['prog_gallery']['album_view']['image_view']['image_alter_breadcrumb'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Alter breadcrumb'),
+      '#default_value' => variable_get('prog_gallery_image_view_alter_breadcrumb', 1),
+    );
+  }
+  else {
+    $form['prog_gallery']['album_view']['image_view']['set_as_albumview'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Show this instead of album view'),
+      '#default_value' => variable_get('prog_gallery_image_view_set_as_albumview', 0),
+    );
+  }
+  
+  $form['prog_gallery']['album_view']['image_view']['image_view_nojs'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Disable dynamical content loading'),
+    '#description' => t("Disable loading images and comments with javascript"),
+    '#default_value' => variable_get('prog_gallery_image_view_nojs', 0),
+  );
+  
+  $form['prog_gallery']['album_view']['image_view']['image_alter_edit_tab'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Replace image edit tab with gallery edit'),
+    '#default_value' => variable_get('prog_gallery_image_view_alter_edit_tab', 1),
+  );
+  
+  $form['prog_gallery']['album_view']['album_pager_limit'] = array(
+    '#title' => t('Images per page'),
+    '#description' => t("Images displayed in one page"),
+    '#default_value' => variable_get('prog_gallery_album_pager_limit', 20),
+    '#type' => 'textfield',
+      '#size' => 3,
+    '#required' => TRUE,
+  );
+  
+  if (module_exists('lightbox2') && variable_get('prog_gallery_image_view_theme', 0) == 2) {
+    $form['prog_gallery']['album_view']['lightbox2_autostart'] = array(
+      '#type' => 'checkbox',
+      '#title' => t('Lighbox2 autostart'),
+      '#description' => t("Autoinitiate lightbox2 slideshow when image grid is viewed"),
+      '#default_value' => variable_get('prog_gallery_lightbox2_autostart', 0),
+    );
+  }
+  
+  $form['prog_gallery']['album_view']['album_view_nojs'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Disable dynamical content loading'),
+    '#description' => t("Disable loading comments with javascript"),
+    '#default_value' => variable_get('prog_gallery_album_view_nojs', 0),
+  );
+
+  $form['#submit'] = array('prog_gallery_admin_settings_submit');
+
+  return system_settings_form($form);
+}
+
+function prog_gallery_admin_settings_submit($form_id, $form_values) {
+
+  // if lightbox is active, remove image view as albumview setting
+  if ($form_values['values']['theme'] == 2) $form_values['values']['set_as_albumview'] = 0;
+  // else remove autostart option
+  else $form_values['values']['lightbox2_autostart'] = 0;
+
+  variable_set('prog_gallery_image_view_theme', $form_values['values']['theme']);
+  variable_set('prog_gallery_album_pager_limit', $form_values['values']['album_pager_limit']);
+  variable_set('prog_gallery_image_view_set_as_albumview', $form_values['values']['set_as_albumview']);
+  variable_set('prog_gallery_lightbox2_autostart', $form_values['values']['lightbox2_autostart']);
+  
+  variable_set('prog_gallery_image_view_nojs', $form_values['values']['image_view_nojs']);
+  variable_set('prog_gallery_album_view_nojs', $form_values['values']['album_view_nojs']);
+  
+  if ($form_values['values']['theme'] != 1) {
+    $form_values['values']['image_alter_title'] = 1;
+    $form_values['values']['image_alter_breadcrumb'] = 1;
+  }
+  variable_set('prog_gallery_image_view_alter_title', $form_values['values']['image_alter_title']);
+  variable_set('prog_gallery_image_view_alter_breadcrumb', $form_values['values']['image_alter_breadcrumb']);
+  
+  // alter edit tab, regenerate menus if needed
+  if ($form_values['values']['image_alter_edit_tab'] != variable_get('prog_gallery_image_view_alter_edit_tab', 1)) {
+    variable_set('prog_gallery_image_view_alter_edit_tab', $form_values['values']['image_alter_edit_tab']);
+    menu_rebuild();
+  }
+}
+
+/**
+ * Administration page for Importing images
+ * Feature contributed by shemgp *  
+ */
+function prog_gallery_admin_settings_import_images() {
+  $form['prog_gallery']['import_location'] = array(
+    '#title' => t('Import folder'),
+    '#description' => t("Directory inside inside ".variable_get('file_directory_path', 'sites/default/files').' to import images from'),
+    '#default_value' => variable_get('prog_gallery_import_location', 'import'),
+    '#type' => 'textfield',
+      '#size' => 60,
+    '#required' => TRUE,
+  );
+
+  $form['#submit'] = array('prog_gallery_admin_settings_import_images_submit');
+
+  return system_settings_form($form);
+}
+function prog_gallery_admin_settings_import_images_validate($form, $form_state) 
+{
+	if ( strstr( $form_state['values']['import_location'], '../') !== FALSE ||
+	    strstr( $form_state['values']['import_location'], '..\\') !== FALSE )
+  {
+		form_set_error('import_location', t('Invalid directory name'));
+  }
+}
+function prog_gallery_admin_settings_import_images_submit($form_id, $form_values) {
+  variable_set('prog_gallery_import_location', $form_values['values']['import_location']);
+}
+
+/*
+ * gallery node content tab
+ */
+function prog_gallery_contents($node) {
+
+  global $_prog_gallery_base;
+  $content = '';
+
+  $path = explode('/', $_GET['q']);
+
+  /*
+  // respond to ajax requests
+  if ($path[sizeof($path)-2] == 'prog_gallery_ajax') {
+    prog_gallery_ajax($node);
+  }
+  */
+
+  // non-javascript tasks
+  if ($path[3] == 'nojs') {
+    $content .= prog_gallery_nojs($node);
+  }
+
+  $thumb_nid = prog_gallery_album_thumb($node->nid);
+
+  drupal_set_title(t('Contents of %title', array('%title' => $node->title)));
+  prog_gallery_breadcrumb($node, TRUE);
+
+
+  // project style and js files
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/prog_gallery.css');
+  drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/prog_gallery.js');
+
+  // was userd for sortables, now only for slide-out animation effect
+  drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/jquery/interface.js');
+
+  // jquery ui.sortable
+  drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/jquery/ui.core.js');
+  drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/jquery/ui.sortable.js');
+
+  if (prog_swfupload_found()) {
+    // swfupload js files http://swfupload.org/
+    drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/swfupload/swfupload.js');
+    drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/swfupload/swfupload.queue.js');
+    drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/swfupload/fileprogress.js');
+    drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/swfupload/handlers.js');
+    // swfupload css
+    drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/swfupload/default.css');
+  }
+
+  // jquery plugin for serializing javascript array http://plugins.jquery.com/project/phpSerialize
+  drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/jquery/jquery.php_serial-0.2.js');
+
+  // jquery plugin for displaying dialog boxes http://dev.iceburg.net/jquery/jqModal/
+  drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/jquery/jqModal.js');
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/jquery/jqModal.css');
+
+  $content .= '<div>';
+  
+  // get image sizes
+  $image_sizes = variable_get('image_sizes',array('thumbnail'=>array('width'=>100, 'height'=> 100)));
+  
+  // css style for box`es
+  $content .= '<style>'."\n";
+  $content .= '.gallery_entry {'."\n";
+	$content .= '  width:'. ($image_sizes['thumbnail']['width'] + 20).'px;'."\n";
+	$content .= '  height:'. ($image_sizes['thumbnail']['height'] + 20).'px;'."\n";
+	$content .= '}'."\n";
+  $content .= '</style>'."\n";
+  
+  // and some javascript love
+  $content .= '<script type="text/javascript">'."\n";
+  $content .= 'var prog_gallery_base = "'. $_prog_gallery_base .'" ;'."\n";
+  if (variable_get('clean_url', '0') == '0') $content .= 'var base_path = "'. base_path() .'?q=";'."\n";
+  else $content .= 'var base_path = "'. base_path() .'";'."\n";
+  
+  $content .= 'var prog_gallery_q = "node/'. $node->nid .'/contents/" ;'."\n";
+  $content .= 'var prog_gallery_url = "'. url('node/'. $node->nid .'/contents') .'/" ;'."\n";
+
+  $content .= 'var swfupload_loaded'."\n";
+  $content .= 'var gallery_checkswfu_id'."\n";
+
+  // detect if swfobject library is set up
+  if (prog_swfupload_found()) $content .= 'var swfupload_found = true;'."\n";
+  else $content .= 'var swfupload_found = false;'."\n";
+
+  // translations
+  $content .= "var gallery_t = new Array() ;"."\n";
+  $content .= "gallery_t['images_information'] = '". t('Images Information') ."';"."\n";
+  $content .= "gallery_t['Title'] = '". t('Title') ."';"."\n";
+  $content .= "gallery_t['Description'] = '" . t('Description') ."';"."\n";
+  $content .= "gallery_t['Save'] = '". t('Save') ."';"."\n";
+  $content .= "gallery_t['ClickUpdateToSaveChanges'] = '". t('Click on "Save" if you want the latest modifications to be saved, or "Cancel" to undo the changes.') ."';"."\n";
+  $content .= "gallery_t['upload_images'] = '". t('Upload Images') ."';"."\n";
+  $content .= "gallery_t['upload_queue'] = '". t('Upload Queue') ."';"."\n";
+  $content .= "gallery_t['files_uploaded'] = '". t('Files Uploaded') ."';"."\n";
+  $content .= "gallery_t['Close'] = '". t('Close') ."';"."\n";
+  //$content .= "gallery_t['Upload_file'] = '". t('Upload file') ."';"."\n";
+  $content .= "gallery_t['CancelAllUploads'] = '". t('Cancel All Uploads') ."';"."\n";
+  $content .= "gallery_t['waiting'] = '". t('waiting') ."';"."\n";
+  $content .= "gallery_t['uploading'] = '". t('uploading') ."';"."\n";
+  $content .= "gallery_t['done'] = '". t('done') ."';"."\n";
+  $content .= "gallery_t['error'] = '". t('error') ."';"."\n";
+
+  $content .= "gallery_t['open_noswfu'] = '". t('Does not work as expected? Press here for no-flash version!') ."';"."\n";
+  $content .= "gallery_t['open_nojs'] = '". t('Does not work as expected? Press here for classic file upload!') ."';"."\n";
+
+  // swfupload
+  if (prog_swfupload_found()) $content .= 'var prog_swfupload_found = true;'."\n";
+  else $content .= 'var prog_swfupload_found = false;'."\n";
+
+  // noswfu upload file upload item counter
+  $content .= 'var gallery_noswfu_submitfile_id = 0;'."\n";
+  $content .= 'var gallery_noswfu_queue_currlen = 0;'."\n";
+  $content .= 'var gallery_noswfu_uploaded = 0;'."\n";
+
+  $content .= '
+  if (prog_swfupload_found) {
+    var settings = {
+      flash_url : prog_gallery_base + "swfupload/swfupload.swf",
+      upload_url: base_path + prog_gallery_q + "prog_gallery_ajax/upload",
+      post_params: {"PHPSESSID" : "'. session_id() .'", "PHPSESSNAME" : "'. session_name() .'"},
+      file_size_limit : "100 MB",
+      file_types : "*.*",
+      file_types_description : "Image Files",
+      file_upload_limit : 90,
+      file_queue_limit : 0,
+      custom_settings : {
+        progressTarget : "fsUploadProgress",
+        cancelButtonId : "btnCancel"
+      },
+      debug: false,
+
+      // Button settings
+      button_width: "95",
+      button_height: "17",
+      button_placeholder_id: "gallery_spanButtonPlaceHolder",
+      button_text: \'<span class="prog_swfupload_button_text_style">'. t('Browse files') .'</span>\',
+      button_text_style: ".prog_swfupload_button_text_style { font-size: 14; }",
+      button_text_left_padding: 12,
+      button_text_top_padding: -2,
+
+      // The event handler functions are defined in handlers.js
+      file_queued_handler : fileQueued,
+      file_queue_error_handler : fileQueueError,
+      file_dialog_complete_handler : fileDialogComplete,
+      upload_start_handler : uploadStart,
+      upload_progress_handler : uploadProgress,
+      upload_error_handler : uploadError,
+      upload_success_handler : uploadSuccess,
+      upload_complete_handler : uploadComplete,
+      queue_complete_handler : queueComplete,  // Queue plugin event
+      swfupload_loaded_handler : gallery_swfUploadLoaded
+    };
+  };
+
+  var content = \'<input type="button" style="background-image:url(\\\''. $_prog_gallery_base .'images/button_icons/add.gif\\\');" class="gallery_editbuttons" value="'. t('Add images') .'" onClick="gallery_addimages_dialog_open();" id="gallery_editbuttons_add" /> \';
+  content += \'<input type="button" disabled="disabled" style="background-image:url(\\\''. $_prog_gallery_base .'images/button_icons/page_edit.gif\\\');" class="gallery_editbuttons" onClick="gallery_edit_edit();" value="'. t('Edit') .'" id="gallery_editbuttons_edit" /> \';
+  content += \'<input type="button" disabled="disabled" style="background-image:url(\\\''. $_prog_gallery_base .'images/button_icons/remove.gif\\\');" class="gallery_editbuttons" onClick="gallery_edit_remove();" value="'. t('Delete') .'" id="gallery_editbuttons_remove" /> \';
+  content += \'<input type="button" disabled="disabled" style="background-image:url(\\\''. $_prog_gallery_base .'images/button_icons/favorite.gif\\\');" class="gallery_editbuttons" onClick="gallery_edit_thumb();" value="'. t('Thumbnail') .'" id="gallery_editbuttons_thumb" /> \';';
+
+  // "sort by exif" button - autosort
+  if (function_exists('exif_read_data')) $content .= 'content += \'<input type="button" class="gallery_editbuttons" style="background-image:url(\\\''. $_prog_gallery_base .'images/button_icons/autosort.gif\\\');" value="'. t('Autosort') .'" id="gallery_editbuttons_autosort" onClick="gallery_edit_autosort();" /> \';';
+
+  $content .= 'content += \'<input type="button" disabled="disabled" class="gallery_editbuttons" value="'. t('Save') .'" id="gallery_editbuttons_update" onClick="gallery_edit_update();" /> \';
+  content += \'<input type="button" disabled="disabled" class="gallery_editbuttons" value="'. t('Cancel') .'" id="gallery_editbuttons_cancel" onClick="gallery_edit_cancel();" /> \';
+  document.write(content);';
+  $content .= '</script>'."\n";
+
+  // no-script buttons for users with no javascript (or .. well .. disabled one)
+  $content .= '<noscript>';
+  $content .= '<form action="'. url('node/'. $node->nid .'/contents/nojs/newimage') .'" method="POST" style="padding:0px;margin:0px;"><input type="submit" style="background-image:url(\''. $_prog_gallery_base .'images/button_icons/add.gif\');" class="gallery_editbuttons" value="'. t('Add new') .'" id="gallery_editbuttons_add" /></form>'."\n";
+  $content .= '</noscript>';
+
+  // warning if updated
+  $content .= '<div class="gallery_warnchanges"></div>';
+
+  // gallery list
+  $content .= '<ul class="gallery_list" id="gallery_list">';
+
+  // make static no-script version for users with no javascript
+  $content .= '<noscript>';
+    foreach (prog_gallery_album_contents($node->nid) as $var => $val) {
+      $entry = node_load($val['nid']);
+      if ($entry->type == 'image') {
+        $content .= '<li class="gallery_entry">';
+
+          $content .= '<span class="gallery_toolbox">';
+          $content .= '<a href="'. url('node/'. $entry->nid .'/edit') .'"><img src="'. $_prog_gallery_base .'images/button_icons/page_edit.gif" align="top"></a><br />';
+          $content .= '<a href="'. url('node/'. $node->nid .'/contents/nojs/setthumb/'. $entry->nid) .'"><img src="'. $_prog_gallery_base .'images/button_icons/favorite.gif" align="top"></a><br />';
+          $content .= '<a href="'. url('node/'. $node->nid .'/contents/nojs/delete/'. $entry->nid) .'"><img src="'. $_prog_gallery_base .'images/button_icons/remove.gif" align="top"></a><br />';
+          $content .= '</span>';
+
+          $content .= '<img src="'. base_path() . $entry->images['thumbnail'] .'" alt="'. $entry->title .'" />';
+
+          $content .= '<span class="gallery_favpic">';
+          if ($entry->nid == $thumb_nid) $content .= '<img src="'. $_prog_gallery_base .'images/button_icons/favorite.gif" align="top">';
+          $content .= '</span>';
+
+          $content .= '<br />';
+          $content .= '<div class="gallery_entry_handler">'. l($entry->title, 'node/'. $entry->nid) .'</div>';
+        $content .= '</li>';
+      }
+    }
+  $content .= '</noscript>';
+
+  $content .= '</ul>';
+
+  // popup-field for edit
+  $content .= '<div class="gallery_editnodes_dialog jqmWindow"></div>';
+  $content .= '<div class="gallery_addimages_dialog jqmWindow"></div>';
+
+  $content .= '</div>';
+
+  return $content;
+}
+
+
+
+
+
+/*
+ * hook view()
+ */
+function prog_gallery_view($node, $teaser = NULL, $page = NULL) {
+  if ($page && !$teaser) prog_gallery_breadcrumb($node);
+
+  $node = node_prepare($node, $teaser);
+
+  if ($teaser) {
+    $thumb = node_load(prog_gallery_album_thumb($node->nid));
+    $node->content['album'] = array(
+            '#value' => theme('prog_gallery_teaser', $node->nid, $node->title, $thumb),
+            '#weight' => 1,
+    );
+  }
+  else {
+    // full node
+    // view album - get contents as array and forward it to theme function
+    $node->content['album'] = array(
+      '#value' => theme('prog_gallery_album', prog_gallery_album_contents($node->nid), $node),
+      '#weight' => 1,
+    );
+  }
+
+  return $node;
+}
+
+/**
+ * non-javascript import of images from directory
+ * Feature contributed by shemgp *   
+ */
+function prog_gallery_import_images($node) {
+	if ( !isset( $_SESSION['prog_gallery_imported_images'] ) )
+    return drupal_get_form('prog_gallery_import_imagesform', $node);
+	else {
+	  unset($_SESSION['prog_gallery_imported_images']);
+	  return '';
+  }
+}
+function prog_gallery_import_imagesform($node) {
+  $file_directory_path = variable_get('file_directory_path','sites/default/files').'/';
+	$options = array('1' => t('Yes'),'0' => t('No'));
+  $form['prog_gallery']['import_location'] = array(
+    '#title' => t('Import folder'),
+    '#description' => t('Directory inside inside "'.variable_get('file_directory_path', 'sites/default/files').'" to import images from.'),
+    '#default_value' => variable_get('prog_gallery_import_location', 'import'),
+    '#type' => 'textfield',
+      '#size' => 60,
+    '#required' => TRUE,
+  );
+	$form['prog_gallery']['import_images'] = array(
+	  '#type' => 'radios',
+		'#title' => t('Import images now?'),
+		'#description' => t('Choose your option.'),
+		'#default_value' => 1,
+		'#options' => $options,
+    '#required' => TRUE,		
+	);
+	$form['hidden'] = array(
+	    '#type' => 'import',
+			'#value' => 'just_passed'
+    );
+	$form['submit'] = array(
+	    '#type' => 'submit', 
+			'#value' => t('Proceed')
+    );
+	return $form;
+}
+function prog_gallery_import_imagesform_validate($form, $form_state) 
+{
+	if ( strstr( $form_state['values']['import_location'], '../') !== FALSE ||
+	    strstr( $form_state['values']['import_location'], '..\\') !== FALSE )
+  {
+		form_set_error('import_location', t('Invalid directory name'));
+  }
+}
+function prog_gallery_import_imagesform_submit($form_id, $formvalues) {
+	if ( $formvalues['values']['import_images'] == '0' ) {
+		
+	  drupal_set_message(t('Did not import images.'));
+		
+  } else if ( $formvalues['values']['import_images'] == '1' ) {
+		
+    $path = variable_get('file_directory_path', 'sites/default/files').'/'.
+            $formvalues['values']['import_location'];
+    $images = file_scan_directory($path,'.*\..*$');
+    $files = array();
+    $file_count = 0;
+    foreach( $images as $key => $image ) {
+      $files['files']['name'][$file_count] = $image->basename;
+      $files['files']['tmp_name'][$file_count] = $image->filename;
+      $files['files']['error'][$file_count] == 0;
+      ++$file_count;
+    }
+    $nid=arg(1);
+    for ($count = 0; $count < $file_count; ++$count) {
+      if (isset($files['files']['name'][$count]) && drupal_strlen($files['files']['name'][$count]) > 0) {
+
+        if ($files['files']['error'][$count] == 0) {
+
+          $type = prog_gallery_gettype($files['files']['name'][$count]);
+
+          if ($type != 'bad') {
+            if ($type == 'image') $new_node = prog_gallery_create_node_from_imagefile($files['files'], $count);
+
+            if ($new_node->images['thumbnail']) {
+              $gallery_content_entry = Array(
+                'nid' => rawurlencode($new_node->nid),
+                'title' => rawurlencode($new_node->title),
+                'fails' => rawurlencode($new_node->images['thumbnail']),
+                'tips' => rawurlencode($new_node->type),
+                'description' => rawurlencode($new_node->body)
+              );
+
+              db_query("INSERT INTO {prog_gallery_images} (i_nid, g_nid, weight, exif_date) VALUES (%d, %d, 0, 0)", $new_node->nid, $nid);
+
+              // update exif date to images table
+              prog_gallery_image_setexifdate($new_node->nid);
+
+              // if gallery's default pic not set yet set it to this one
+              if (prog_gallery_album_thumb($nid) == 0) db_query("UPDATE {prog_gallery} SET thumb='%s' WHERE g_nid= '%s'", $new_node->nid, $nid);
+
+              drupal_set_message(t('File ') . $files['files']['name'][$count] . t(' imported successfully.'));
+            }
+            else drupal_set_message(t('File ') . $files['files']['name'][$count] . t(' import error: ') . t('error creating file'), 'error');
+          }
+          else drupal_set_message(t('File ') . $files['files']['name'][$count] . t(' import error: ') . t('bad file type'), 'error');
+        }
+        else drupal_set_message(t('File ') . $files['files']['name'][$count] . t(' import error: ') . $files['files']['error'][$count], 'error');
+      }      
+    } // end of for loop
+		drupal_set_message(t("Don't forget to delete the imported images from ".$path));
+  }
+	$_SESSION['prog_gallery_imported_images'] = TRUE;
+}
+
+/*
+ * non-javascript browser tasks
+ */
+function prog_gallery_nojs($node) {
+  $path = explode('/', $_GET['q']);
+  $task = $path[4];
+
+  // ------ upload changes to album -------->
+
+  if ($task == 'setthumb') {
+    // set thumbnail
+    db_query("UPDATE {prog_gallery} SET thumb='%s' WHERE g_nid=%d", $path[5], $node->nid);
+    drupal_set_message(t('Thumbnail has been set'));
+  }
+  elseif ($task == 'delete') {
+    prog_gallery_remove_image_node($node, $path[5]);
+    drupal_set_message(t('Image has been deleted from gallery'));
+  }
+  elseif ($task == 'newimage') {
+    drupal_set_title(t('Upload file to %title', array('%title' => $node->title)));
+
+    prog_gallery_breadcrumb($node, TRUE);
+
+    return drupal_get_form('prog_gallery_nojs_uploadform', $node);
+  }
+}
+
+/*
+ * simple file upload form
+ */
+
+function prog_gallery_nojs_uploadform($node) {
+
+  $form['#attributes'] = array('enctype' => "multipart/form-data");
+
+  $form['prog_gallery_nojs']['upload'][0] = array(
+    '#type' => 'file',
+    '#title' => t('Image file')
+  );
+  $form['prog_gallery_nojs']['upload'][1] = array(
+    '#type' => 'file'
+  );
+  $form['prog_gallery_nojs']['upload'][2] = array(
+    '#type' => 'file'
+  );
+  $form['prog_gallery_nojs']['upload'][3] = array(
+    '#type' => 'file'
+  );
+  $form['prog_gallery_nojs']['upload'][4] = array(
+    '#type' => 'file'
+  );
+
+  $form['prog_gallery_nojs']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => 'Upload'
+  );
+
+  return $form;
+}
+
+function prog_gallery_nojs_uploadform_submit($form_id, $form_values) {
+  $nid = arg(1);
+
+  for ($count = 0;$count < 5;$count++)
+  if (isset($_FILES['files']['name'][$count]) && drupal_strlen($_FILES['files']['name'][$count]) > 0) {
+
+    if ($_FILES['files']['error'][$count] == 0) {
+
+      $type = prog_gallery_gettype($_FILES['files']['name'][$count]);
+
+      if ($type != 'bad') {
+        if ($type == 'image') $new_node = prog_gallery_create_node_from_imagefile($_FILES['files'], $count);
+
+        if ($new_node->images['thumbnail']) {
+          $gallery_content_entry = Array(
+            'nid' => rawurlencode($new_node->nid),
+            'title' => rawurlencode($new_node->title),
+            'fails' => rawurlencode($new_node->images['thumbnail']),
+            'tips' => rawurlencode($new_node->type),
+            'description' => rawurlencode($new_node->body)
+          );
+
+          db_query("INSERT INTO {prog_gallery_images} (i_nid, g_nid, weight, exif_date) VALUES (%d, %d, 0, 0)", $new_node->nid, $nid);
+
+          // update exif date to images table
+          prog_gallery_image_setexifdate($new_node->nid);
+
+          // if gallery's default pic not set yet set it to this one
+          if (prog_gallery_album_thumb($nid) == 0) db_query("UPDATE {prog_gallery} SET thumb='%s' WHERE g_nid= '%s'", $new_node->nid, $nid);
+
+          drupal_set_message(t('File ') . $_FILES['files']['name'][$count] . t(' uploaded successfully'));
+        }
+        else drupal_set_message(t('File ') . $_FILES['files']['name'][$count] . t(' upload error: ') . t('error creating file'), 'error');
+      }
+      else drupal_set_message(t('File ') . $_FILES['files']['name'][$count] . t(' upload error: ') . t('bad file type'), 'error');
+    }
+    else drupal_set_message(t('File ') . $_FILES['files']['name'][$count] . t(' upload error: ') . $_FILES['files']['error'][$count], 'error');
+  }
+}
+
+
+
+
+/*
+ * respond to ajax requests
+ */
+function prog_gallery_ajax($node) {
+  global $_prog_gallery_base;
+  global $user;
+
+  $path = explode('/', $_GET['q']);
+  $lastparam = $path[sizeof($path)-1];
+
+  // ------ upload changes to album -------->
+
+  if ($lastparam == 'save_album') {
+
+    if (prog_gallery_access('update', $node)) {
+
+      if ($_POST['gallery_content']) {
+        $gallery_content = unserialize($_POST['gallery_content']);
+
+        // set thumbnail
+        db_query("UPDATE {prog_gallery} SET thumb='%s' WHERE g_nid=%d", $_POST['gallery_thumb'], $node->nid);
+
+        // extract weight masive from gallery_list hash
+        $weight = explode('&', $_POST['gallery_list']);
+        for ($i=0;$i<sizeof($weight);$i++) $weight[$i] = drupal_substr($weight[$i], drupal_strlen('gallery_list[]='), drupal_strlen($weight[$i]) - drupal_strlen('gallery_list[]='));
+
+        // and use it for deleting nodes that doesnt exist in this gallery anymore
+        // if image still exists in gallery, change title and description accrordingly
+        $images = prog_gallery_album_contents($node->nid);
+        foreach ($images as $child) {
+
+          if (in_array($child['nid'], $weight)) {
+            // change title and description of images (title and body accordingly)
+            foreach ($gallery_content as $var => $val) {
+              if ($val['nid'] == $child['nid']) {
+                $child_node = node_load($child['nid']);
+                $child_node->title = rawurldecode($val['title']);
+                $child_node->body = rawurldecode($val['description']);
+                node_save($child_node);
+              }
+            }
+          }
+          else {
+            prog_gallery_remove_image_node($node, $child['nid']);
+          }
+        }
+
+        $i2 = 1;
+        // set weight of images
+        for ($i=sizeof($weight)-1;$i>=0;$i--) {
+          db_query("UPDATE {prog_gallery_images} SET weight='%d' WHERE i_nid=%d AND g_nid=%d", $i2 , $weight[$i], $node->nid);
+          $i2++;
+        }
+      }
+      exit('ok');
+    }
+    else exit('fail');
+  }
+  // <----- upload changes to album ---------
+
+
+  // ---- load image list of gallery ------->
+  else if ($lastparam == 'get_album_contents') {
+    drupal_set_header("Content-Type: text/javascript");
+    if (prog_gallery_access('view', $node)) exit(prog_gallery_get_album_contents_javascriptized($node));
+    else exit('var key="fail";');
+  }
+  // <--- load image list of gallery --------
+
+  // ---- upload image to gallery ------->
+  else if ($lastparam == 'upload') {
+
+    // in this case $node arg was not node, but $nid
+    // $nid = $node;
+    $nid = $node->nid;
+
+    if (is_array($_FILES['Filedata'])) {
+
+      if (prog_gallery_access('update', $node)) {
+
+        if ($_FILES['Filedata']['error'] == 0) {
+
+          $type = prog_gallery_gettype($_FILES['Filedata']['name']);
+
+          if ($type != 'bad') {
+            if ($type == 'image') $new_node = prog_gallery_create_node_from_imagefile($_FILES['Filedata']);
+
+            $new_node = node_load($new_node->nid);
+
+            if ($new_node->images['thumbnail']) {
+              $gallery_content_entry = Array(
+                'nid' => rawurlencode($new_node->nid),
+                'title' => rawurlencode($new_node->title),
+                'fails' => rawurlencode($new_node->images['thumbnail']),
+                'tips' => rawurlencode($new_node->type),
+                'description' => rawurlencode($new_node->body)
+              );
+
+              db_query("INSERT INTO {prog_gallery_images} (i_nid, g_nid, weight, exif_date) VALUES (%d, %d, 0, 0)", $new_node->nid, $nid);
+
+              // update exif date to images table
+              prog_gallery_image_setexifdate($new_node->nid);
+
+              // if gallery's default pic not set yet set it to this one
+              if (prog_gallery_album_thumb($nid) == 0) db_query("UPDATE {prog_gallery} SET thumb='%s' WHERE g_nid= '%s'", $new_node->nid, $nid);
+
+              exit(serialize($gallery_content_entry));
+            }
+            else exit('fail');
+          }
+          else exit('fail');
+        }
+        else exit('fail');
+      }
+      else exit('fail');
+    }
+    else exit('fail');
+  }
+  // <--- upload image to gallery --------
+
+  // ########### EXIF SORTING
+  // ---- sort images by exif data -------->
+  else if ($lastparam == 'autosort_album') {
+    if (prog_gallery_access('update', $node) && function_exists('exif_read_data')) {
+      $images = prog_gallery_album_contents($node->nid);
+
+      if (sizeof($images) >0) {
+        $exif_arr_nid = array();
+        $exif_arr_date = array();
+        
+        foreach ($images as $child) {
+          // reindex those entries who have 0 there
+          if ($child['exif_date'] == '0') $child['exif_date'] = prog_gallery_image_setexifdate($child['nid']);
+         
+          $exif_arr_nid[] = $child['nid'];
+          $exif_arr_date[] = $child['exif_date'];
+        }
+
+        // sort
+        array_multisort($exif_arr_date, SORT_ASC, SORT_NUMERIC, $exif_arr_nid);
+        
+        $sort = isset($_SESSION['prog_gallery_autosort']) ? $_SESSION['prog_gallery_autosort'] : 'asc';
+        if ( $sort == 'asc' ) $exif_arr_nid = array_reverse( $exif_arr_nid );
+        $_SESSION['prog_gallery_autosort'] = ($sort == 'asc') ? 'desc' : 'asc';
+        
+        // write back
+        $exif_nr = 1;
+        foreach ($exif_arr_nid as $key => $val) {
+          db_query("UPDATE {prog_gallery_images} SET weight = %d WHERE i_nid = %d;", $exif_nr, $val) ;
+          $exif_nr++;
+        }
+
+        exit('ok');
+      }
+    }
+    else exit('fail');
+  }
+  // <--- sort images by exif data ---------
+
+  // ########### AJAX COMMENT HANDLING ------->
+
+  // ---- load comments from node ------->
+  else if ($lastparam == 'get_comments') {
+    drupal_set_header("Content-Type: text/javascript");
+    $output = '';
+    if (prog_gallery_access('view', $node)) {
+      if (function_exists('comment_render') && $node->comment) {
+        //$output .= comment_render($node, $cid);
+        $output .= comment_render($node);
+        //$output = drupal_substr($output,19,-7);
+
+        // leave only <form> element
+        //$output = strstr(drupal_substr($output,0,strpos($output, '</form>') + drupal_strlen('</form>')), '<form');
+
+        // replace form button action
+        $output = str_replace('type="submit"', 'type="button"', $output);
+      }
+
+      // Update the history table, stating that this user viewed this node.
+      node_tag_new($node->nid);
+    }
+    exit($output);
+  }
+  // <---- load comments from node -------
+
+  // --- return form -------->
+  else if ($lastparam == 'get_comments_form') {
+    drupal_set_header("Content-Type: text/javascript");
+    $output = '';
+    if (prog_gallery_access('view', $node)) {
+      if (function_exists('comment_render') && $node->comment) {
+
+        //if ($_POST['op']) $op = $_POST['op'];
+        //else $op = t("Save");
+
+        $displayform = TRUE;
+
+        $args = array('nid' => $node->nid, 'uid' => $user->uid);
+        if (isset($_POST['cid'])) {
+          $comment = _comment_load($_POST['cid']);
+          $args['uid'] = $comment->uid;
+        }
+
+        if ($_POST['pid']) $args['pid'] = $_POST['pid'];
+        if ($_POST['cid']) $args['cid'] = $_POST['cid'];
+
+        //if ($op == t("Post comment")) {
+        if ($_POST['op'] == t("Save")) {
+
+          //clear all drupal messages
+          drupal_get_messages();
+
+          comment_save(array_merge($_POST, $args));
+
+          $errors = drupal_get_messages('error');
+          if (sizeof($errors) < 1) {
+            $output .= 'refresh_comments';
+            $displayform = FALSE;
+          }//else $output = array('success' => 'false', 'data' => implode(", \n", $errors['error']));
+        }
+
+        if ($displayform) {
+          watchdog('prog_gallery', "someone please debug this! -> prog_gallery.module");
+          if ($_POST['cid']) {
+            module_load_include('inc', 'comment', 'comment.pages');
+            $output .= comment_edit($_POST['cid']);
+          }
+          else $output .= theme('box', '', drupal_get_form('comment_form', $_POST, $_POST['op']));
+
+          // leave only <form> element
+          $output = strstr(drupal_substr($output, 0, strpos($output, '</form>') + drupal_strlen('</form>') - 3), '<form');
+
+          // replace form button action
+          $output = str_replace('type="submit"', 'type="button"', $output);
+        }
+
+        //clear all drupal messages again
+        drupal_get_messages();
+      }
+    }
+    exit($output);
+  }
+  // <--- return form --------
+
+  // --- delete comment -------->
+  else if ($lastparam == 'delete_comment') {
+    drupal_set_header("Content-Type: text/javascript");
+    if ($_POST['cid']) {
+      $cid = $_POST['cid'];
+      if (function_exists('comment_render') && $node->comment) {
+        $comment = _comment_load($cid);
+        if (prog_gallery_access('update', $node) || ($user->uid == $comment->uid) ) {
+          module_load_include('inc', 'comment', 'comment.admin');
+          _comment_delete_thread($comment);
+          _comment_update_node_statistics($comment->nid);
+          cache_clear_all();
+        }
+      }
+    }
+    exit('refresh_comments');
+  }
+  // <--- delete comment --------
+
+  ############## <----------- COMMENT HANDLING
+
+  //else exit('no action');
+  else exit();
+}
+
+
+
+/*
+ * Image node modification
+ * http://api.drupal.org/api/function/hook_nodeapi
+ */
+function prog_gallery_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+  switch ($op) {
+    case 'view':
+      if (($node->type == 'image') && (!$teaser)) {
+        if ($gallery_nid = prog_gallery_in_gallery($node->nid)) {
+          $gallery_node = node_load($gallery_nid);
+
+          if (variable_get('prog_gallery_image_view_alter_title', 1) == 1) drupal_set_title($gallery_node->title);
+          if (variable_get('prog_gallery_image_view_alter_breadcrumb', 1) == 1) 
+            if ($node) prog_gallery_breadcrumb($node, TRUE);
+    
+          
+          // 1st theme is classic image node look (no alterations)
+          if (variable_get('prog_gallery_image_view_theme', 0) != 1) { 
+          
+            // define our element weight
+            $weight = -1;
+  
+            $node->content['prog_gallery_image'] = array(
+              '#value' => theme('prog_gallery_album_image', prog_gallery_album_contents($gallery_node->nid), $gallery_node),
+              '#weight' => $weight,
+            );
+            
+            unset($node->content['body']);
+  
+            // move image element
+            //$node->content['image']['#weight'] = $weight + 1;
+            // remove image element
+            unset($node->content['image']);
+          
+          }
+        }
+      }
+      break;
+  }
+}
+
+
+/*
+ * remove image links from image nodes that are in gallery
+ */
+function prog_gallery_link_alter(&$links, $node) {
+  if ($node->type == 'image') {
+    if (prog_gallery_in_gallery($node->nid)) {
+      // 1st theme is classic image node look (no alterations)
+      if (variable_get('prog_gallery_image_view_theme', 0) != 1) {   
+        unset($links['image_size_thumbnail']);
+        unset($links['image_size_preview']);
+        unset($links['image_size__original']);
+      }
+    }
+  }
+}
+
+
+/*
+ * Get albums's thumbnail
+ */
+function prog_gallery_album_thumb($node_nid) {
+  $thumb_c = db_query("SELECT thumb FROM {prog_gallery} WHERE g_nid = %d", $node_nid);
+  $thumb = db_fetch_array($thumb_c);
+  return $thumb['thumb'];
+}
+
+
+/*
+ * Implementation of hook_block().
+ */
+function prog_gallery_block($op = 'list', $delta = 0, $edit = array()) {
+  global $user;
+  switch ($op) {
+    case 'list':
+      $blocks[0]['info'] = t('Prog gallery: List of galleries');
+      $blocks[1]['info'] = t('Prog gallery: Galleries links');
+      $blocks[2]['info'] = t('Prog gallery: List of my galleries');
+      $blocks[3]['info'] = t('Prog gallery: My gallery links');
+      $blocks[4]['info'] = t("Prog gallery: Author's galleries");// block implemented by Antti Kettunen (schoenae)
+      $blocks[5]['info'] = t("Prog gallery: Link to all author's galleries");
+      return $blocks;
+    case 'configure':
+      $form = array();
+      if ($delta == 0) {
+        $form['prog_gallery_block_galleries'] = array(
+          '#type' => 'textfield',
+          '#title' => t('List of public galleries'),
+          '#size' => 10,
+          '#description' => t('How many galleries will be shown in block.'),
+          '#default_value' =>
+          variable_get('prog_gallery_block_galleries', 4),
+        );
+      }
+      if ($delta == 2) {
+        $form['prog_gallery_block_mygalleries'] = array(
+          '#type' => 'textfield',
+          '#title' => t("User's gallery list"),
+          '#size' => 10,
+          '#description' => t('How many galleries will be shown in block.'),
+          '#default_value' =>
+          variable_get('prog_gallery_block_mygalleries', 4),
+        );
+      }
+      if ($delta == 4) {
+        $form['prog_gallery_block_authorgalleries'] = array(
+          '#type' => 'textfield',
+          '#title' => t("Node author's gallery list"),
+          '#size' => 10,
+          '#description' => t('How many galleries will be shown in block.'),
+          '#default_value' =>
+          variable_get('prog_gallery_block_authorgalleries', 4),
+        );
+      }
+      return $form;
+    case 'save':
+      if ($delta == 0) {
+        variable_set('prog_gallery_block_galleries', $edit['prog_gallery_block_galleries']);
+      }
+      if ($delta == 2) {
+        variable_set('prog_gallery_block_mygalleries', $edit['prog_gallery_block_mygalleries']);
+      }
+      if ($delta == 4) {
+        variable_set('prog_gallery_block_authorgalleries', $edit['prog_gallery_block_authorgalleries']);
+      }
+      return;
+    case 'view': default:
+      switch ($delta) {
+        case 0:
+          $gallery_list = prog_gallery_gallery_list_contents(NULL, variable_get('prog_gallery_block_galleries', 4));
+          $block['subject'] = t('Galleries');
+          $block['content'] = theme('prog_gallery_block_contents', $gallery_list);
+          break;
+        case 1:
+          $block['subject'] = t('Galleries links');
+          $block['content'] = theme('prog_gallery_block_links', $delta);
+          break;
+        case 2:
+          $gallery_list = prog_gallery_gallery_list_contents($user->uid, variable_get('prog_gallery_block_mygalleries', 4), NULL, TRUE);
+          $block['subject'] = t('My Galleries');
+          $block['content'] = theme('prog_gallery_block_contents', $gallery_list);
+          break;
+        case 3:
+          $block['subject'] = t('My Galleries links');
+          $block['content'] = theme('prog_gallery_block_links', $delta);
+          break;
+        case 4:
+          if ((in_array(arg(0), Array('node', 'galleries', 'user'))) && (is_numeric(arg(1)))) {
+            if (arg(0) == 'node') {
+              $node = node_load(arg(1));
+              $uid = $node->uid;
+            }
+            elseif (in_array(arg(0), Array('galleries', 'user'))) $uid = arg(1);
+            
+            $gallery_list = prog_gallery_gallery_list_contents($uid, variable_get('prog_gallery_block_authorgalleries', 4), NULL, FALSE);
+            $block['subject'] = t("User's galleries");
+            $block['content'] = theme('prog_gallery_block_contents', $gallery_list);
+          }
+          break;
+        case 5:
+          if ((in_array(arg(0), Array('node', 'galleries', 'user'))) && (is_numeric(arg(1)))) {
+            if (arg(0) == 'node') {
+              $node = node_load(arg(1));
+              $uid = $node->uid;
+            }
+            elseif (in_array(arg(0), Array('galleries', 'user'))) $uid = arg(1);
+            
+            $block['subject'] = t("User's galleries links");
+            $block['content'] = theme('prog_gallery_block_links', $delta, $uid);
+          }
+          break;
+      }
+    return $block;
+  }
+}
+
+
+
+
+/*
+ * Check for swfupload libraries
+ */
+function prog_swfupload_found() {
+  if (!file_exists(drupal_get_path('module', 'prog_gallery') .'/swfupload/swfupload.swf')) return FALSE;
+  else return TRUE;
+}
+
+
+
+
+
+/*
+ * create breadcrumb
+ */
+function prog_gallery_breadcrumb($node = NULL, $nodelink = FALSE) {
+  global $user;
+
+  $breadcrumb[] = l(t('Home'), '');
+
+  if ((arg(1) != '') && (arg(1) != 'my')) {
+    if (($node->uid == $user->uid)||(arg(1) == 'my')||((arg(0) == 'galleries') && (arg(1)==$user->uid))) $breadcrumb[] = l(t('My galleries'), 'galleries/my');
+    else $breadcrumb[] = l(t('Galleries'), 'galleries');
+
+    if ($node->nid && $nodelink) $breadcrumb[] = l(t($node->title), 'node/'. $node->nid);
+  }
+
+  drupal_set_breadcrumb($breadcrumb);
+}
+
+
+
+
+/*
+ * Load album contents
+ */
+function prog_gallery_album_contents($nid) {
+  global $user;
+  $images = array();
+
+  if (!$nid) return $images;
+
+  $images_q = "SELECT n.nid, n.title, n.type, pg.weight, pg.exif_date FROM {node} n INNER JOIN {prog_gallery_images} pg ON n.nid = pg.i_nid WHERE pg.g_nid = %d AND n.status = 1 ORDER BY pg.weight DESC";
+  $images_c = db_query($images_q, $nid);
+
+  while ($image_c = db_fetch_array($images_c)) {
+    // if exif support is enabled, work with exif data
+    if (function_exists('exif_read_data')) if ($image_c['exif_date'] == '0') $image_c['exif_date'] = prog_gallery_image_setexifdate($image_c['nid']);
+    $images[] = $image_c;
+  }
+
+  // index pager
+  pager_query($images_q, variable_get('prog_gallery_album_pager_limit', 20), 0, NULL, $nid);
+
+  return $images;
+}
+
+
+
+
+/*
+ * code based on Andrew Morton's image_import module's
+ * functions image_import_form_submit and _image_import_file
+ */
+function prog_gallery_create_node_from_imagefile($upfile, $arr=-1) {
+  global $user;  
+
+  $dirpath = variable_get('file_directory_path','sites/default/files') .'/'. variable_get('image_default_path', 'images') .'/';// . date('Y/m/d');
+  if ($arr == -1) $origname = $upfile['name'];else $origname = $upfile['name'][$arr];
+
+  if ($arr == -1) $tmp_name = $upfile['tmp_name'];else $tmp_name = $upfile['tmp_name'][$arr];
+
+  file_copy($tmp_name, $dirpath .'/'. $origname, FILE_EXISTS_RENAME);
+  $filepath = $tmp_name;
+
+  // build a file object
+  $file = new stdClass();
+  $file->filepath = realpath($filepath);
+  $file->filename = basename($file->filepath);
+
+  // start building a node
+  $node = new stdClass();
+  $node->type = 'image';
+  $node->uid = $user->uid;
+  $node->name = $user->name;
+
+  // set the node's defaults... (copied this from node and comment.module)
+  $node_options = variable_get('node_options_'. $node->type, array('status'));
+  $node->status = in_array('status', $node_options);
+  $node->promote = 0;
+  if (module_exists('comment')) {
+    $node->comment = variable_get("comment_$node->type", COMMENT_NODE_READ_WRITE);
+  }
+
+  // start filling in the image info...
+  $node->title = $file->filename;
+
+  // copy the file so if there's a problem it can be re-imported.
+  if (file_copy($file, _image_filename($file->filename, NULL, TRUE), FILE_EXISTS_RENAME)) {
+    if ($image = image_get_info($file->filepath)) {
+      $node->images['_original'] = $file->filepath;
+      $node->images = _image_build_derivatives($node, TRUE);
+      $node->new_file = TRUE;
+
+      $node = node_submit($node);
+      node_save($node);
+
+      // remove the original file
+      file_delete($filepath);
+
+      return $node;
+    }
+    // the copied file wasn't a proper image, trash it
+    file_delete($file->filepath);
+  }
+  else file_delete($file->filepath);
+  return FALSE;
+
+  // this one reports annoying drupal message that derivatives are generated and node is sticky by default :(
+  //$node = image_create_node_from($filepath, NULL, '', NULL);
+
+  return $node;
+}
+
+
+/*
+ * can implement checking for mimetypes here
+ * and make nodes accordingly
+ * for now just check extension
+ */
+function prog_gallery_gettype($filename) {
+  $filename = explode('.', $filename);
+  if (drupal_strtolower($filename[sizeof($filename)-1]) == 'jpg') $type = 'image';
+  elseif (drupal_strtolower($filename[sizeof($filename)-1]) == 'gif') $type = 'image';
+  elseif (drupal_strtolower($filename[sizeof($filename)-1]) == 'png') $type = 'image';
+  else $type = 'bad';
+  return $type;
+}
+
+
+/*
+ * load gallery contents and format them as javascript array
+ */
+function prog_gallery_get_album_contents_javascriptized($gallery_node) {
+  $images = prog_gallery_album_contents($gallery_node->nid);
+    $content = "var galleries = new Array();"."\r\n";
+    $content .= "galleries['nid']='". rawurlencode($gallery_node->nid) ."';"."\r\n";
+    $content .= "galleries['title']='". rawurlencode($gallery_node->title) ."';"."\r\n";
+    $content .= "galleries['body']='". rawurlencode($gallery_node->body) ."';"."\r\n";
+    $content .= "galleries['thumb']='". rawurlencode(prog_gallery_album_thumb($gallery_node->nid)) ."';"."\r\n"."\r\n";
+
+    $content .= "var gallery_content = new Array();"."\r\n"."\r\n";
+
+    if (count($images) == 0) return $content;
+
+  $i = 0;
+  foreach ($images as $child) {
+    $child = node_load($child['nid']);
+
+    $content .= "gallery_content[". $i ."] = new Array();"."\r\n";
+      $content .= "gallery_content[". $i ."]['nid']='". rawurlencode($child->nid) ."';"."\r\n";
+      $content .= "gallery_content[". $i ."]['title']='". rawurlencode($child->title) ."';"."\r\n";
+      $content .= "gallery_content[". $i ."]['fails']='". rawurlencode($child->images['thumbnail']) ."';"."\r\n";
+      $content .= "gallery_content[". $i ."]['tips']='". rawurlencode($child->type) ."';"."\r\n";
+      $content .= "gallery_content[". $i ."]['description']='". rawurlencode($child->body) ."';"."\r\n";
+
+      $i++;
+      continue;
+  }
+
+  return $content;
+}
+
+
+/*
+ * display gallery list of some particular user
+ */
+function prog_gallery_gallery_list($uid = NULL, $limit = NULL, $start = NULL, $my = FALSE) {
+  global $user;
+
+  if ($my) $uid = $user->uid;
+
+  prog_gallery_breadcrumb();
+
+  return theme('prog_gallery_gallery_list', prog_gallery_gallery_list_contents($uid, $limit, $start, $my));
+}
+
+/*
+ * get gallery list contents for some particular user
+ */
+function prog_gallery_gallery_list_contents($uid = NULL, $limit = NULL, $start = NULL, $my = FALSE) {
+  global $user;
+
+  if ( (($uid != $user->uid) || ($user->uid == 0)) && (!user_access('administer site configuration'))) {
+    $q_add = " AND n.status = 1";
+  }
+
+  // if user id specified, select his galleries only. show unpublished galleries of that user also
+  if (drupal_strlen($uid) > 0) $q_add .= " AND n.uid = '". $uid ."'";
+  else $q_add .= "";
+
+  // if not "my" gallery listed, then dont show empty (or without thumbnail) galleries
+  if (!$my) $q_add .= " AND pg.thumb <> '0'";
+
+  // if limit filter set
+  if ($limit) $q_lim = ' LIMIT '. $limit;
+  if ($count) $q_lim = ' LIMIT '. $start .','. $limit;
+
+  $galleries_c = db_query("SELECT n.nid, n.title, n.uid, n.status, n.sticky, pg.thumb FROM {node} n LEFT JOIN {prog_gallery} pg ON n.nid = pg.g_nid WHERE n.type = 'prog_gallery'". $q_add ." ORDER BY n.sticky, n.created DESC" . $q_lim);
+  $galleries = array();
+  while ($gallery_c = db_fetch_array($galleries_c)) {
+    $galleries[] = $gallery_c;
+    }
+
+  return $galleries;
+}
+
+
+
+
+/*
+ * remove image node and remove links from gallery`s table
+ */
+function prog_gallery_remove_image_node($gallery_node, $child_nid) {
+  $child_node = node_load($child_nid);
+
+  if (prog_gallery_access("delete", $child_node)) {
+    node_delete($child_node->nid);
+    
+    // delete the node from gallery
+    db_query("DELETE FROM {prog_gallery_images} WHERE i_nid='%s' and g_nid='%d'", $child_node->nid, $gallery_node->nid);
+
+    // if image was thumbnail, set it to some other pic from gallery
+    if (prog_gallery_album_thumb($gallery_node->nid) == $child_node->nid) {
+      $images = prog_gallery_album_contents($gallery_node->nid);
+
+      // if no images left in gallery, set thumb to 0 so gallery isnt shown in public listing
+      if (count($images) == 0) db_query("UPDATE {prog_gallery} SET thumb='0' WHERE g_nid= '%s'", $gallery_node->nid);
+      else db_query("UPDATE {prog_gallery} SET thumb='%s' WHERE g_nid= '%s'", $images[0]['nid'], $gallery_node->nid);
+    }
+    
+    //clear all drupal messages
+    drupal_get_messages();
+  }
+  //else drupal_set_message(t('Cannot delete image node'));
+}
+
+
+
+
+
+/*
+ * Update/Get EXIF date using EXIF data in _original file
+ */
+function prog_gallery_image_setexifdate($nid) {
+  $node = node_load($nid);
+
+  if (function_exists('exif_read_data')) {
+    $exif = @exif_read_data($node->images['_original'], 'IFD0');
+    $exif = @exif_read_data($node->images['_original'], 0, TRUE);
+  }
+  else return -1;
+
+  if (is_array($exif) && (sizeof($exif)>0)) {
+    // try all DateTime entries in EXIF data fields
+    //foreach ($exif as $key => $section) if ($key == 'IFD0') if ($section['DateTime']) $exif_date= $section['DateTime'];
+    // improvement #406014 fix contributed by shemgp
+    foreach ($exif as $key => $section) {
+      if ($key == 'IFD0') 
+        if ($section['DateTime']) {
+          $exif_date= $section['DateTime'];
+          break;
+        }
+      if ($key == 'EXIF')
+        if ($section['DateTimeOriginal'])
+        {
+          $exif_date= $section['DateTimeOriginal'];
+          break;
+        }
+    }
+ 
+    // some dirty substring routine
+    if (drupal_strlen($exif_date)>2) {
+      $exif_date = drupal_substr($exif_date, 0, 4) . drupal_substr($exif_date, 5, 2) . drupal_substr($exif_date, 8, 2) .
+        drupal_substr($exif_date, 11, 2) . drupal_substr($exif_date, 14, 2) . drupal_substr($exif_date, 17, 2);
+      db_query("UPDATE {prog_gallery_images} SET exif_date = '%s' WHERE i_nid=%d;", $exif_date, $nid);
+      return $exif_date;
+    }
+    else {
+      db_query("UPDATE {prog_gallery_images} SET exif_date = -1 WHERE i_nid=%d;", $nid);
+      return -1;
+    }
+  }
+  else {
+    db_query("UPDATE {prog_gallery_images} SET exif_date = -1 WHERE i_nid=%d;", $nid);
+    return -1;
+  }
+}
+
+
+/*
+ * Check if image is in any gallery
+ */
+function prog_gallery_in_gallery($i_nid) {
+  $result = db_query("SELECT g_nid FROM {prog_gallery_images} WHERE i_nid = '%s'", $i_nid);
+  $images = db_fetch_array($result);
+  if (isset($images['g_nid'])) return $images['g_nid'];
+  else return FALSE;
+}
+
+
+// -------- THEMES ----------->
+
+
+
+
+/*
+ * theme an array of nodes. viewing the gallery.
+ */
+function theme_prog_gallery_album($album_content, $node=NULL) {
+  global $_prog_gallery_base;
+
+  if  (variable_get('prog_gallery_image_view_set_as_albumview', 0) == 1) $album = theme('prog_gallery_album_image', $album_content, $node);
+
+  else {
+    // style
+    drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/gallery-album.css');
+    drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/prog_gallery.css');
+
+    // javascript
+    if (variable_get('prog_gallery_album_view_nojs', 0) == '0') {
+      drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/prog_gallery_comments_ajax.js');
+      drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/prog_gallery_album.js');
+
+      drupal_add_js('/misc/collapse.js');
+      
+      // get image sizes
+      $image_sizes = variable_get('image_sizes',array('thumbnail'=>array('width'=>100, 'height'=> 100)));
+      
+      // css style for box`es
+      $album  = '<style>'."\n";
+      $album .= '.gallery_album_entry {'."\n";
+	    $album .= '  width:'. ($image_sizes['thumbnail']['width'] + 10).'px;'."\n";
+	    $album .= '  height:'. ($image_sizes['thumbnail']['height'] + 20).'px;'."\n";
+	    $album .= '}'."\n";
+      $album .= '</style>'."\n";
+      
+      // define javascript variables
+      $album .= '<script type="text/javascript">'."\n";
+      $album .= 'var prog_gallery_url = "'. url($_GET['q']) .'/" ;'."\n";
+      $album .= 'var prog_gallery_q = "node/" ;'."\n";
+      $album .= 'var prog_gallery_base = "'. $_prog_gallery_base .'" ;'."\n";
+      $album .= 'var prog_gallery_nid = "'. $node->nid .'" ;'."\n";
+      if (variable_get('clean_url', '0') == '0') $album .= 'var base_path = "'. base_path() .'?q=";'."\n";
+      else $album .= 'var base_path = "'. base_path() .'";'."\n";
+      $album .= 'var prog_gallery_lightbox2_autostart = '. variable_get('prog_gallery_lightbox2_autostart', 0) ."\n";
+      $album .= '</script>'."\n";
+      
+    }
+
+    prog_gallery_breadcrumb($node, FALSE);
+
+    if ($_GET['page']) $prog_gallery_album_page = $_GET['page'];else $prog_gallery_album_page=0;
+    
+    $prog_gallery_album_pager_limit = variable_get('prog_gallery_album_pager_limit', 20);
+
+    $album .= '<div id="gallery_album_view" class="gallery_album_view">';
+      for ($i=0;$i<sizeof($album_content);$i++) {
+        $entry = node_load($album_content[$i]['nid']);
+
+        // print entries only if they are within pager viewport
+        if (($i >= ($prog_gallery_album_page * $prog_gallery_album_pager_limit)) && ($i < ($prog_gallery_album_page * $prog_gallery_album_pager_limit) + $prog_gallery_album_pager_limit)) {
+
+          if ($entry->type == 'image') {
+            $album .= '<div class="gallery_album_entry">';
+
+            // 2 - lightbox
+            if (variable_get('prog_gallery_image_view_theme', 0) == 2) {
+              $title = $entry->title;
+              if (strlen($entry->body) > 0) $title .= ': '.str_replace("\n",'<br />',$entry->body); 
+              
+              $title .= '<br /><br />';
+              
+              // View Image Details
+              $view_details = check_plain(variable_get('lightbox2_node_link_text', 'View Image Details'));
+              if (strlen($view_details) > 0) 
+                $title .= l($view_details, 'node/'. $entry->nid, array('html' => TRUE, 'attributes' => array('id' => 'node_link_text')));   
+              
+              // Download Original
+              $download_original = check_plain(variable_get('lightbox2_download_link_text', 'Download Original'));
+              if (strlen($download_original) > 0) 
+                if (user_access('download original image')) $title .= ' - '. l($download_original, $entry->images['_original'], array('html' => TRUE, 'attributes' => array('id' => 'download_link_text', 'target' => '_blank')));
+              
+              $album .= l('<img src="'. base_path() . $entry->images['thumbnail'] .'" alt="'. addslashes(str_replace('"','&quot;',$entry->body)) .'" />', $entry->images['_original'], array('html' => TRUE, 'attributes' => array('rel' => 'lightshow[gallery][' .$title. ']'))) .'<br />';
+            }
+            // 0 - default view. merged with shiftview
+            else $album .= l('<img src="'. base_path() . $entry->images['thumbnail'] .'" alt="'. addslashes(str_replace('"','&quot;',$entry->body)) .'" />', 'node/'. $entry->nid, array('html' => TRUE)).'<br />';
+
+            $album .= '</div>';
+          }
+        }
+      }
+    $album .= '</div>';
+
+    // pager
+    $album .= theme('pager', NULL, $prog_gallery_album_pager_limit, 0);
+  }
+
+  return $album;
+}
+
+
+
+
+
+/*
+ * display images
+ */
+function theme_prog_gallery_album_image($album_content, $node=NULL) {
+  global $_prog_gallery_base;
+
+  if (!$node->nid) $startimage = $album_content[0]['nid'];else $startimage = arg(1);
+
+  // style
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/gallery-album-image.css');
+
+  if (variable_get('prog_gallery_image_view_nojs', 0) == '0') {
+    
+    // javascript
+    drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/prog_gallery_comments_ajax.js');
+
+    drupal_add_js('/misc/collapse.js');
+  }
+
+  if (sizeof($album_content)>0) {
+
+    $prog_gallery_carousel_start = 0;
+    // get start position in carousel. when page is loaded (also this variable defined),
+    // carousel starts up and start variable gets this value
+    $image_count = 0;
+      foreach ($album_content as $var => $val) {
+      if ($val['nid'] == $startimage) $prog_gallery_carousel_start = $image_count;
+      $image_count++;
+    }
+
+    if (variable_get('prog_gallery_image_view_nojs', 0) == '0') {
+  
+      // javascript
+      drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/prog_gallery_album_image.js');
+
+      // jcarousel js
+      drupal_add_js(drupal_get_path('module', 'prog_gallery') .'/jquery/jquery.jcarousel.js');
+      
+      // generate array of in gallery
+      $album .= '<script type="text/javascript">'."\n";
+      $album .= 'var prog_gallery_url = "'. url($_GET['q']) .'/" ;'."\n";
+      $album .= 'var prog_gallery_q = "'. $_GET['q'] .'/" ;'."\n";
+      $album .= 'var prog_gallery_base = "'. $_prog_gallery_base .'" ;'."\n";
+      if (variable_get('clean_url', '0') == '0') $album .= 'var base_path = "'. base_path() .'?q=";'."\n";
+      else $album .= 'var base_path = "'. base_path() .'";'."\n";
+      $album .= 'var prog_gallery_imagecarousel;'."\n";
+      //$album .= 'var prog_gallery_image_view_nothumbs = '. variable_get('prog_gallery_image_view_nothumbs',0) .';';
+
+      $album .= 'var prog_gallery_carousel_itemList = ['."\n";
+      $image_count = 0;
+      foreach ($album_content as $var => $val) {
+        $entry = node_load($val['nid']);
+        if ($entry->type == 'image') {
+          $album .= '{'."\n";
+          $album .= 'index: "'. $image_count .'",'."\n";
+          $album .= 'nid: "'. $entry->nid .'",'."\n";
+          $album .= 'url: "'. base_path() . $entry->images['thumbnail'] .'", '."\n";
+          $album .= 'previewurl: "'. base_path() . $entry->images['preview'] .'", '."\n";
+          $album .= 'title: "'. rawurlencode(strip_tags($entry->title)) .'", ';
+          $album .= 'description: "'. rawurlencode(strip_tags($entry->body)) .'"';
+          $album .= '},'."\n";
+        }
+
+        $image_count++;
+      }
+      // strip last comma
+      $album = drupal_substr($album, 0, -2);
+      $album .= '];'."\n";
+      
+      $album .= 'var prog_gallery_carousel_start = '. $prog_gallery_carousel_start .';'."\n";
+
+      $album .= '</script>'."\n";
+
+      // jcarousel css
+      drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/jquery.jcarousel.css');
+      drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/jquery.jcarousel.skin.css');
+
+    }
+      
+    // load the image node specified in url
+    foreach ($album_content as $var => $val) {
+      if ($val['nid'] == $startimage) {
+        $entry = node_load($val['nid']);
+      }
+    }
+
+    if ($entry->type == 'image') {
+      
+      // generate casual html carousel for fallback and forced no-js mode 
+      $nojs_carousel = '<div class="gallery_album_carousel_container">'."\n";
+    
+      // generate index`es
+      $carousel_index = array();
+      for ($i = -2; $i<3; $i++) {
+        $c = $prog_gallery_carousel_start + $i; 
+        
+        while ($c < 0) $c = sizeof($album_content) + $c;
+        while ($c > sizeof($album_content) - 1) $c = $c - sizeof($album_content);
+        
+        $carousel_index[] = $album_content[$c]['nid'];
+      }
+        
+      // display thumbs  
+      foreach ($carousel_index as $var => $val) {
+        $carousel_entry = node_load($val);
+        $nojs_carousel .= '<div class="gallery_album_thumb_container';
+        if ($val == $startimage) $nojs_carousel .= ' gallery_album_thumb_currimg';
+        $nojs_carousel .= '">'."\n";
+          $nojs_carousel .= '<a href="'. url('node/'. $val) .'">'."\n";
+            $nojs_carousel .= '<img src="'. base_path() . $carousel_entry->images['thumbnail'] .'" alt="'. $carousel_entry->body .'" />'."\n";
+          $nojs_carousel .= '</a>'."\n";
+        $nojs_carousel .= '</div>'."\n";
+      }
+      
+      $nojs_carousel .= '</div>';
+      // <-- carousel
+      
+      // no javascript mode image -->
+      $nextindex = $prog_gallery_carousel_start + 1;
+      if ($nextindex > sizeof($album_content) -1 ) $nextindex = 0; 
+      
+      $nojs_image .= '<a href="'. url('node/'.$album_content[$nextindex]['nid']) .'" class="gallery_album_image_href"><div id="gallery_album_image_container">'."\n";
+      $nojs_image .= '<img src="'. base_path() . $entry->images['preview'] .'" class="gallery_album_image" alt="'. $entry->body .'" />'."\n";
+      $nojs_image .= '</div></a>'."\n";
+      // <-- no javascript mode image    
+    
+      // display them
+      if (variable_get('prog_gallery_image_view_nojs', 0) == '0') {
+
+        // carousel placeholder
+        $js_content = '<ul id="image_carousel" class="jcarousel-skin-tango"></ul>'."\n";
+      
+        $js_content .= '<a nohref="#" class="gallery_album_image_href"><div id="gallery_album_image_container">'."\n";
+        $js_content .= '<img src="'. base_path() . $entry->images['preview'] .'" class="gallery_album_image" alt="'. $entry->body .'" onClick="prog_gallery_carousel_start = prog_gallery_carousel_getnormalindex(prog_gallery_carousel_start + 1);prog_gallery_carousel_loadImage(prog_gallery_carousel_start)" />'."\n";
+        $js_content .= '</div></a>'."\n";
+        
+        // display js mode
+        $album .= '<script type="text/javascript">'."\n";
+        $album .= 'var content = decodeURIComponent("'. rawurlencode($js_content) .'") ;'."\n";
+        $album .= 'document.write(content);'."\n";
+        $album .= '</script>'."\n";
+        
+        // display no-js mode
+        $album .= '<noscript>'."\n";
+        $album .= $nojs_carousel;
+        $album .= $nojs_image;
+        $album .= '</noscript>'."\n";
+      } else {
+        // display carousel and image
+        $album .= $nojs_carousel;
+        $album .= $nojs_image;
+      }  
+        
+      $album .= '<div class="gallery_album_image_description">'. $entry->body .'</div>'."\n";
+    }
+
+  }
+
+  return $album;
+}
+
+
+
+
+
+
+/*
+ * theme an array of nodes. gallery listing.
+ */
+function theme_prog_gallery_gallery_list($galleries) {
+  // style
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/gallery-list.css');
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/prog_gallery.css');
+
+  // get image sizes
+  $image_sizes = variable_get('image_sizes',array('thumbnail'=>array('width'=>100, 'height'=> 100)));
+  
+  // css style for box`es
+  $content  = '<style>'."\n";
+  $content .= '.gallery_list_entry {'."\n";
+  $content .= '  width:'. ($image_sizes['thumbnail']['width'] + 10).'px;'."\n";
+  //$content .= '  height:'. ($image_sizes['thumbnail']['height'] + 20).'px;'."\n";
+  $content .= '}'."\n";
+  $content .= '</style>'."\n";
+  
+
+  $content .= '<div id="gallery_list_view" class="gallery_list_view">';
+  if (is_array($galleries)) {
+    foreach ($galleries as $var => $val) {
+      if ($val['thumb'] || (arg(1) == 'my')) {
+        $entry = node_load($val['thumb']);
+          // !!!TODO
+          if ($val['thumb'] && $entry->images['thumbnail']) {
+            $content .= '<div class="gallery_list_entry">';
+              $content .= '<div class="gallery_list_entry_image">';
+              $content .= l('<img src="'. base_path() . $entry->images['thumbnail'] .'" alt="'. $val['title'] .'" />', 'node/'. $val['nid'], array('html' => TRUE));
+              $content .= '</div>';
+              $content .= '<div class="gallery_list_entry_text">'. l($val['title'], 'node/'. $val['nid']) .'</div>';
+            $content .= '</div>';
+          }
+          else if (arg(1) == 'my') {
+            $content .= '<div class="gallery_list_entry">';
+              $content .= '<div class="gallery_list_entry_image">';
+              $content .= l('<div class="gallery_default_pic"></div>', 'node/'. $val['nid'], array('html' => TRUE));
+              $content .= '</div>';
+              $content .= '<div class="gallery_list_entry_text">'. l($val['title'], 'node/'. $val['nid']) .'</div>';
+            $content .= '</div>';
+          }
+        }
+    }
+  }
+  else $content .= 'No galleries';
+  $content .= '</div>';
+
+  return $content;
+}
+
+
+
+
+
+
+/*
+ * theme an array of nodes. gallery listing in block.
+ */
+function theme_prog_gallery_block_contents($galleries) {
+  // style
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/gallery-block.css');
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/prog_gallery.css');
+
+  $content = '<div class="gallery_list_block">';
+  if (is_array($galleries)) {
+    foreach ($galleries as $var => $val) {
+      if ($val['thumb']) $entry = node_load($val['thumb']);
+
+      $content .= '<div class="gallery_list_block_entry_image">';
+      if ($val['thumb'] && $entry->images['thumbnail']) {
+        $content .= l('<img src="'. base_path() . $entry->images['thumbnail'] .'" alt="'. $val['title'] .'" />', 'node/'. $val['nid'], array('html' => TRUE));
+      }
+      else {
+        $content .= l('<div class="gallery_default_pic"></div>', 'node/'. $val['nid'], array('html' => TRUE));
+      }
+      $content .= '</div>';
+      $content .= '<div class="gallery_list_block_entry_text">';
+      $content .= l($val['title'], 'node/'. $val['nid']);
+
+      $content .= '</div>';
+    }
+  }
+
+  $content .= '</div>';
+
+  return $content;
+}
+
+
+
+
+
+
+/*
+ * theme gallery links.
+ */
+function theme_prog_gallery_block_links($delta, $uid=NULL) {
+  // style
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/gallery-block.css');
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/prog_gallery.css');
+
+  switch ($delta) {
+    case 1:
+      $content='<div class="gallery_list_block_links">'. l(t('All galleries'), 'galleries') .'</div>';
+      break;
+    case 3:
+      $content = '<div class="gallery_list_block_link">'. l(t('Add Gallery'), 'node/add/prog_gallery') .'</div>';
+      $content .= '<div class="gallery_list_block_link">'. l(t('My Galleries'), 'galleries/my') .'</div>';
+      break;
+    case 5:
+      if ($uid != NULL) $content='<div class="gallery_list_block_links">'. l(t("User's galleries"), 'galleries/'. $uid) .'</div>';
+      break;
+  }
+
+  return $content;
+}
+
+
+/*
+ * show gallery teaser
+ */
+function theme_prog_gallery_teaser($nid, $title, $node) {
+  // style
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/gallery-album.css');
+  drupal_add_css(drupal_get_path('module', 'prog_gallery') .'/css/prog_gallery.css');
+
+  $content = '<div id="gallery_teaser_view" class="gallery_teaser_view">';
+
+  if ($node->images['thumbnail']) {
+  $content .= '<div class="gallery_list_entry_image">';
+  $content .= l('<img src="'. base_path() . $node->images['thumbnail'] .'" alt="'. $title .'" />', 'node/'. $nid, array('html' => TRUE));
+  $content .= '</div>';
+  $content .= '<div class="gallery_list_entry_text">'. l($title, 'node/'. $nid) .'</div>';
+  }
+
+  $content .= '</div>';
+return $content;
+}
+
+// <------- THEMES ------------
+

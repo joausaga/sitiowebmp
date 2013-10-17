@@ -1,0 +1,11 @@
+name = Node Hierarchy
+description = A module to make nodes heirarchical.
+package = "Node Hierarchy"
+core = 6.x
+
+; Information added by drupal.org packaging script on 2012-06-13
+version = "6.x-1.5"
+core = "6.x"
+project = "nodehierarchy"
+datestamp = "1339599086"
+

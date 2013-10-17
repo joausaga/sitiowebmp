@@ -1,0 +1,11 @@
+<?php
+// $Id: comment_display.install,v 1.1 2008/10/26 15:20:04 sun Exp $
+
+/**
+ * Implementation of hook_install().
+ */
+function comment_display_install() {
+  // Increase module weight so we run after node module.
+  db_query("UPDATE {system} SET weight = 1 WHERE type = 'module' AND name = 'comment_display'");
+}
+

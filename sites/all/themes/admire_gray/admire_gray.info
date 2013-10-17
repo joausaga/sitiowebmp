@@ -1,0 +1,13 @@
+name = Admire Gray
+description = Advanced designed Drupal theme featuring clean design and TableLess layout.
+version = VERSION
+core = 6.x
+engine = phptemplate
+
+regions[left] = Left sidebar
+regions[rightup] = RightUp sidebar
+regions[right] = Right sidebar
+regions[header] = Header
+regions[content_top] = Content top
+regions[footer] = Footer
+regions[content_bottom] = Content bottom

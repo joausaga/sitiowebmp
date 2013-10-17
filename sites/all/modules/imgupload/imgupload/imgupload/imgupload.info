@@ -1,0 +1,17 @@
+; $Id: imgupload.info,v 1.7 2008/10/22 13:04:13 pre911mindset Exp $
+name = "Image Uploader"
+description = "Allows batch uploading of images to image galleries, with client-side scaling."
+core = "6.x"
+dependencies[] = image
+dependencies[] = image_gallery 
+package = Image
+version = "6.x-1.7"
+
+
+
+; Information added by drupal.org packaging script on 2008-12-24
+version = "6.x-1.9"
+core = "6.x"
+project = "imgupload"
+datestamp = "1230077426"
+

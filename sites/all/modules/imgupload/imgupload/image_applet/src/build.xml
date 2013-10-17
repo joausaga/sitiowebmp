@@ -1,0 +1,65 @@
+<?xml version="1.0"?>
+
+<project name="image_applet" basedir="." default="usage">
+    <property file="build.properties"/>
+
+    <property name="src.dir" value="."/>
+    <property name="build.dir" value="build"/>
+    <property name="class.dir" value="classes"/>
+    <property name="name" value="image_applet"/>
+	<property environment="myEnv" />
+	<property name="jhome" value="${myEnv.JAVA_HOME}"/>
+	<property name="classpath" value="${jhome}\jre\lib\plugin.jar"/>
+
+    <target name="usage">
+        <echo message=""/>
+        <echo message="${name} build file"/>
+        <echo message="${classpath} is Netscape plugin."/>
+        <echo message="-----------------------------------"/>
+        <echo message=""/>
+        <echo message="Available targets are:"/>
+        <echo message=""/>
+        <echo message="build     --> Build the application"/>
+        <echo message="deploy    --> Deploy application as directory"/>
+        <echo message="deploywar --> Deploy application as a WAR file"/>
+        <echo message="install   --> Install application in Tomcat"/>
+        <echo message="reload    --> Reload application in Tomcat"/>
+        <echo message="start     --> Start Tomcat application"/>
+        <echo message="stop      --> Stop Tomcat application"/>
+        <echo message="list      --> List Tomcat applications"/>
+        <echo message=""/>
+    </target>
+
+	<target name="delclass" description="Delete the classes dir">
+        <delete dir="${class.dir}"/>
+	</target>
+    <target name="compile" description="Compile main source tree java files">
+        <delete dir="${class.dir}"/>
+        <mkdir dir="${class.dir}"/>
+        <javac destdir="${class.dir}" source="1.5" target="1.5" debug="true"
+               deprecation="false" optimize="false" failonerror="true">
+            <src path="${src.dir}"/>
+        	<classpath>
+        		<pathelement path="${classpath}"/>
+        	</classpath>
+        </javac>
+    </target>
+	<target name="copy" description="copy xml to class file">
+		<copy todir="${class.dir}">
+			<fileset dir="${src.dir}">
+			  <include name="**/*.xml"/>
+			  <include name="**/*.gif"/>
+			  <include name="**/*.png"/>
+		    </fileset>
+			</copy>
+	</target>
+	
+	<target name="jar" description="archive">
+        <mkdir dir="${build.dir}"/>
+		<jar destfile="${build.dir}/${name}.jar"
+		    basedir="${class.dir}"/>
+	</target>
+
+	<target name="build" depends="compile,copy,jar">
+    </target>
+</project>

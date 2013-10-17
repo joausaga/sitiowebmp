@@ -1,0 +1,11 @@
+; $Id: comment_display.info,v 1.1 2008/10/26 15:20:04 sun Exp $
+name = Comment Display
+description = Prevents rendering of comments inside of nodes and provides them as separate page elements instead.
+core = 6.x
+
+; Information added by drupal.org packaging script on 2008-10-26
+version = "6.x-1.0"
+core = "6.x"
+project = "comment_display"
+datestamp = "1225034704"
+

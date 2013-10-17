@@ -1,0 +1,152 @@
+# $Id: pt-br_14.po,v 1.1 2008/10/14 05:25:49 pre911mindset Exp $
+#
+# LANGUAGE translation of Drupal (general)
+# Copyright YEAR NAME <EMAIL@ADDRESS>
+# Generated from files:
+#  imgupload.module: n/a
+#  imgupload.info,v 1.6 2008/10/07 20:54:17 pre911mindset
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: imgupload module Drupal 6.x\n"
+"POT-Creation-Date: 2008-10-13 21:01-0300\n"
+"PO-Revision-Date: 2008-10-13 21:01-0300\n"
+"Last-Translator: moskito <leandromunizlima@yahoo.com.br>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: imgupload.module:18
+msgid "Helps in uploading images to image galleries."
+msgstr "Ajuda a enviar imagens para galerias."
+
+#: imgupload.module:119
+msgid "Upload Images Into..."
+msgstr "Enviar as imagens para..."
+
+#: imgupload.module:125;211
+msgid "Existing Gallery"
+msgstr "Galeria existente"
+
+#: imgupload.module:126;212
+msgid "imgupload-use-existing"
+msgstr ""
+
+#: imgupload.module:131;217
+msgid "New Gallery"
+msgstr "Nova galeria"
+
+#: imgupload.module:132;218
+msgid "imgupload-create-new"
+msgstr ""
+
+#: imgupload.module:166
+msgid "Upload To Gallery"
+msgstr "Enviar para galeria"
+
+#: imgupload.module:183
+msgid "Choose Target Image Gallery"
+msgstr "Escolha a galeria de imagem"
+
+#: imgupload.module:186
+msgid "Choose the target gallery for your images."
+msgstr "Escolha a galeria de destino"
+
+#: imgupload.module:194
+msgid "Name"
+msgstr "Nome"
+
+#: imgupload.module:195
+msgid "Enter the name of the new Gallery."
+msgstr "Digite o nome da nova galeria."
+
+#: imgupload.module:199;200
+msgid "Description"
+msgstr "Descrição"
+
+#: imgupload.module:226
+msgid "Browse for Upload"
+msgstr "Procurar para enviar"
+
+#: imgupload.module:227
+msgid "imgload"
+msgstr ""
+
+#: imgupload.module:296
+msgid "Please select a name for the new gallery."
+msgstr "Selecione o nome da nova galeria."
+
+#: imgupload.module:461
+msgid "Security violation!."
+msgstr "Violação de segurança!"
+
+#: imgupload.module:516
+msgid "Default width"
+msgstr "Largura padrão"
+
+#: imgupload.module:519
+msgid "Default width for compression of images."
+msgstr "Largura padrão para compressão das imagens."
+
+#: imgupload.module:524
+msgid "Default height"
+msgstr "Altura padrão"
+
+#: imgupload.module:528
+msgid "Default height for compression of images."
+msgstr "Altura padrão para compressão das imagens."
+
+#: imgupload.module:533
+msgid "Debugging"
+msgstr "Depuração"
+
+#: imgupload.module:535
+msgid "Turns verbose debugging on (very annoying)."
+msgstr "Ativar depuração detalhada (muito irritante)."
+
+#: imgupload.module:539
+msgid "Path to .jar files"
+msgstr "Caminho para os arquivos .jar"
+
+#: imgupload.module:498
+msgid "access imgupload content"
+msgstr "acessar conteúdo imgupload"
+
+#: imgupload.module:499
+msgid "administer imgupload"
+msgstr "administrar imgupload"
+
+#: imgupload.module:568;587
+msgid "Image Uploader (batch)"
+msgstr ""
+
+#: imgupload.module:569
+msgid "Scale and Upload images <i>en masse</i> from your local machine."
+msgstr "Redimensionar e enviar imagens em massa de sua máquina local."
+
+#: imgupload.module:588
+msgid "Not Found."
+msgstr "Não encontrado."
+
+#: imgupload.module:604 imgupload.info:0
+msgid "Image Uploader"
+msgstr ""
+
+#: imgupload.module:619
+msgid "Image Uploader Settings"
+msgstr ""
+
+#: imgupload.module:0
+msgid "imgupload"
+msgstr ""
+
+#: imgupload.info:0
+msgid "Allows batch uploading of images to image galleries, with client-side scaling."
+msgstr "Permite envio em lote de imagens para galerias, com redimensionamento client-side."
+
+#: imgupload.info:0
+msgid "Image"
+msgstr "Imagem"
+

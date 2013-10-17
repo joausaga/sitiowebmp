@@ -1,0 +1,25 @@
+/* 
+	$Id$
+	@file
+*/
+
+.gallery_list_block {
+	display: block;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+.gallery_list_block_entry {
+	text-align:center;
+	margin-bottom: 5px;
+}
+
+.gallery_list_block_entry_image {
+	width:auto;
+	text-align:center;
+}
+
+.gallery_list_block_entry_text {
+	width:auto;
+	text-align:center;
+}

@@ -1,0 +1,47 @@
+<?php
+// $Id$
+/**
+* @file
+* Modulo para validar la creacion y/o edicion del nodo retiro
+*/
+ 
+/*
+* Implementacion del hook_form_alter()
+*
+*/
+function validacion_nodo_retiro_form_alter(&$form, $form_state, $form_id) {
+    if ($form_id == 'retiro_node_form') {
+       $form['#validate'] = array('_validacion_formulario_nodo_retiro');
+    }
+    return $form;
+}
+ 
+/*
+* Validacion del formulario del nodo retiro.
+* La validacion consiste en verificar que si se selecciono un formulario de registro de retiro ver que tambien este completos
+* los campos de periodo de inscripcion, nombre y correo electronico del encargado de inscripciones.-
+* O si indico la fecha del periodo de inscripcion debe especificar tambien el formulario de inscripcion.-
+*/
+function _validacion_formulario_nodo_retiro($form, &$form_state) {
+    if($form_state['values']['field_inscripcion'][0]['nid'] != NULL) {
+    //drupal_set_message($form_state['values']['field_inscripcion'][0]['nid']);
+        if($form_state['values']['field_fecha_inscripcion'][0]['value'] == NULL) {
+            form_set_error('field_fecha_inscripcion', t('El campo Periodo de Inscripcion es necesario.'));         
+        }            
+        else {
+            if ($form_state['values']['field_encargado_inscripcion'][0]['value'] == NULL) {
+                form_set_error('field_encargado_inscripcion', t('El campo Nombre es necesario.'));
+            }
+            else {
+                if ($form_state['values']['field_mail_encargado_inscripcion'][0]['email'] == NULL) {
+                    form_set_error('field_mail_encargado_inscripcion', t('El campo Correo Electronico es necesario.'));
+                }
+            }        
+        }
+    }
+    else {
+    	if($form_state['values']['field_fecha_inscripcion'][0]['value'] != NULL)
+    		form_set_error('field_inscripcion', t('Debe seleccionar algun formulario de inscripcion al retiro.'));	
+    }
+}
+?>

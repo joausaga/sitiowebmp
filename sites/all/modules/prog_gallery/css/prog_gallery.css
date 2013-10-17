@@ -1,0 +1,165 @@
+/* 
+	$Id$
+	@file
+*/
+.gallery_list {
+	_width:100%;
+	padding-left: 0px;	
+	text-align:left;
+	list-style-position: inside; 
+	/*cursor: hand; 
+	cursor: pointer;*/	
+	overflow:auto;
+	list-style: none;
+	list-style-type: none;
+	padding: 0;
+	margin: 0;
+}
+
+.gallery_entry {
+	text-align:center;
+	margin:2px;
+	padding:10px;
+	/*
+	  width:140px;
+	  height:120px;
+	  border:dotted 1px #FFFFFF;
+	*/
+	border:solid 1px #FFFFFF;
+	overflow:hidden;
+	float:left;
+	display:block;
+	background:none;
+}
+
+.gallery_entry_pic {
+	cursor:move;
+}
+
+.sortablehover {
+
+}
+
+
+.gallery_selected {
+	border:solid 1px #F5B965;
+}
+
+.gallery_entry_handler {
+
+}
+
+.gallery_entry_handler_hover {
+	/*cursor:move;*/
+	background-image:url('../images/gallery_entry_handler_hover.gif');
+}
+
+.gallery_editbuttons {
+	background-repeat:no-repeat;
+	background-position: 4 1;
+	padding-left:20px;
+	background-color:transparent;
+	border:solid 1px #9696B9;
+}
+
+.gallery_editnodes_dialog, .gallery_addimages_dialog {
+	/*position:absolute;*/
+	border:solid 2px #999999;
+	width:700px;
+	max-height:400px;
+	_height:400px; 
+	top:100px;
+	left:100px;
+	padding:20px;
+	background-color:#FFFFFF;
+	/*visibility:hidden;
+	z-index:1000;*/
+	overflow-y:auto;
+	text-align:left;
+}
+
+.gallery_editnodes_dialog_entries {
+	overflow-y:auto;
+	max-height:340px;
+	_height:340px; 
+}
+
+.gallery_warnchanges {
+	border:solid 1px #F5B965;
+	color:red;
+	margin-top:10px;
+	margin-bottom:10px;
+	background-image:url('../images/gallery_warning.gif');
+	background-repeat:no-repeat;
+	background-position: 6 3;
+	padding-left:28px;
+	padding-top:1px;
+	padding-bottom:1px;
+	visibility:hidden;
+	height:0px;
+	overflow:auto;
+}
+
+.gallery_list_view {
+	
+}
+
+.gallery_default_pic {
+	border:solid 1px #999999;
+	width:98px;
+	height:98px;
+	margin-left:auto;
+	margin-right:auto;
+}
+
+img {
+	border:0;
+}
+
+.gallery_toolbox {
+	float:left;
+}
+
+.gallery_noswfu_iframe {
+	width:1px;
+	height:1px;
+	display:none;
+}
+
+.gallery_noswfu_queue_filename {
+	font-weight:bold;
+}
+
+.gallery_noswfu_queue {
+	width: 157px;
+	overflow: hidden;
+	float:left;
+	margin: 5px;
+	padding: 4px;
+}
+
+.gallery_noswfu_queue_waiting {
+	border: solid 1px #E8E8E8;
+	background-color: #F7F7F7;
+}
+
+.gallery_noswfu_queue_uploading {
+	border: solid 1px #DDF0DD;
+	background-color: #EBFFEB;
+}
+
+.gallery_noswfu_queue_done {
+	border: solid 1px #CEE2F2;
+	background-color: #F0F5FF;
+}
+
+.gallery_noswfu_queue_error {
+	border: solid 1px #B50000;
+	background-color: #FFEBEB;
+}
+
+.gallery_addimages_dialog_fallbacklink {
+	color:#0062A0;
+	cursor: pointer;
+	float:left;
+}

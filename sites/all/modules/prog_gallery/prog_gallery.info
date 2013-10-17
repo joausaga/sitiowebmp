@@ -1,0 +1,13 @@
+name = PROG Gallery
+description = "AJAX based galleries for displaying image nodes"
+dependencies[] = image
+version = "6.x-1.x-dev"
+
+core = 6.x
+
+; Information added by drupal.org packaging script on 2013-05-25
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "prog_gallery"
+datestamp = "1369450818"
+

@@ -1,0 +1,6 @@
+; $Id: validacion.info,v 0.1 2010/02/1 13:00:00
+name = "Validacion nodo Retiro"
+description = "Validar la creacion o edicion del nodo Retiro"
+version = "6.x"
+core = "6.x"
+package = "Otros"

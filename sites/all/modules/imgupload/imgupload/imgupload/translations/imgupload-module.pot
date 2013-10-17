@@ -1,0 +1,157 @@
+# $Id: imgupload-module.pot,v 1.1 2008/10/14 05:25:49 pre911mindset Exp $
+#
+# LANGUAGE translation of Drupal (general)
+# Copyright YEAR NAME <EMAIL@ADDRESS>
+# Generated from files:
+#  imgupload.module: n/a
+#  imgupload.info,v 1.6 2008/10/07 20:54:17 pre911mindset
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"POT-Creation-Date: 2008-10-14 00:16-0300\n"
+"PO-Revision-Date: YYYY-mm-DD HH:MM+ZZZZ\n"
+"Last-Translator: NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <EMAIL@ADDRESS>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: imgupload.module:18
+msgid "Helps in uploading images to image galleries."
+msgstr ""
+
+#: imgupload.module:119
+msgid "Upload Images Into..."
+msgstr ""
+
+#: imgupload.module:125;211
+msgid "Existing Gallery"
+msgstr ""
+
+#: imgupload.module:126;212
+msgid "imgupload-use-existing"
+msgstr ""
+
+#: imgupload.module:131;217
+msgid "New Gallery"
+msgstr ""
+
+#: imgupload.module:132;218
+msgid "imgupload-create-new"
+msgstr ""
+
+#: imgupload.module:166
+msgid "Upload To Gallery"
+msgstr ""
+
+#: imgupload.module:183
+msgid "Choose Target Image Gallery"
+msgstr ""
+
+#: imgupload.module:186
+msgid "Choose the target gallery for your images."
+msgstr ""
+
+#: imgupload.module:194
+msgid "Name"
+msgstr ""
+
+#: imgupload.module:195
+msgid "Enter the name of the new Gallery."
+msgstr ""
+
+#: imgupload.module:199;200
+msgid "Description"
+msgstr ""
+
+#: imgupload.module:226
+msgid "Browse for Upload"
+msgstr ""
+
+#: imgupload.module:227
+msgid "imgload"
+msgstr ""
+
+#: imgupload.module:296
+msgid "Please select a name for the new gallery."
+msgstr ""
+
+#: imgupload.module:461
+msgid "Security violation!."
+msgstr ""
+
+#: imgupload.module:516
+msgid "Default width"
+msgstr ""
+
+#: imgupload.module:519
+msgid "Default width for compression of images."
+msgstr ""
+
+#: imgupload.module:524
+msgid "Default height"
+msgstr ""
+
+#: imgupload.module:528
+msgid "Default height for compression of images."
+msgstr ""
+
+#: imgupload.module:533
+msgid "Debugging"
+msgstr ""
+
+#: imgupload.module:535
+msgid "Turns verbose debugging on (very annoying)."
+msgstr ""
+
+#: imgupload.module:539
+msgid "Path to .jar files"
+msgstr ""
+
+#: imgupload.module:542
+msgid "<b>Only change this if you have problems!  Clear field to reset!</b><p>URL to locate applet archive (.jar) files. Make sure java is enabled, and your JRE is installed > 5.0 (also called 1.5, go figure). If the URL that we generate is not correct,  you can type it in manually.  Note that this is the URI path to the jar file, with out the jar file name itself. "
+msgstr ""
+
+#: imgupload.module:498
+msgid "access imgupload content"
+msgstr ""
+
+#: imgupload.module:499
+msgid "administer imgupload"
+msgstr ""
+
+#: imgupload.module:564;583
+msgid "Image Uploader (batch)"
+msgstr ""
+
+#: imgupload.module:565
+msgid "Scale and Upload images <i>en masse</i> from your local machine."
+msgstr ""
+
+#: imgupload.module:584
+msgid "Not Found."
+msgstr ""
+
+#: imgupload.module:600 imgupload.info:0
+msgid "Image Uploader"
+msgstr ""
+
+#: imgupload.module:615
+msgid "Image Uploader Settings"
+msgstr ""
+
+#: imgupload.module:0
+msgid "imgupload"
+msgstr ""
+
+#: imgupload.info:0
+msgid "Allows batch uploading of images to image galleries, with client-side scaling."
+msgstr ""
+
+#: imgupload.info:0
+msgid "Image"
+msgstr ""
+

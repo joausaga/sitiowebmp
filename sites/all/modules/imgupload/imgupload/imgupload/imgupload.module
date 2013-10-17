@@ -1,0 +1,646 @@
+<?php
+
+define(IMGUPLOAD_CREATE_NEW_GALLERY,'create_new');
+define(IMGUPLOAD_USE_EXISTING_GALLERY,'use_existing');
+define(IMGUPLOAD_NEW_GALLERY_TAG,'new_gallery_name');
+
+/*
+ * Created on Aug 13, 2008
+ *
+ * To change the template for this generated file go to
+ * Window - Preferences - PHPeclipse - PHP - Code Templates
+ */
+function imgupload_help($path, $arg) {
+    $output = '';
+    switch ($path) {
+        case "admin/help#imgupload" :
+        case "imgupload" :
+            $output = '<p>' . t("Helps in uploading images to image galleries.") . '</p>';
+            break;
+    }
+    return $output;
+}
+
+function _imgupload_construct_absolute_url() {
+    $rv = variable_get('imgupload_altpath',FALSE);
+    if (!$rv) {
+        $rv = realpath(drupal_get_path('module','imgupload'));
+        $rv = str_replace('\\','/',$rv);
+        $rv = str_replace($_SERVER['DOCUMENT_ROOT'],'',$rv);
+        $rv = 'http://'.$_SERVER['HTTP_HOST'].$rv;    
+    }
+    return $rv;
+}
+/**
+ * Create the applet tag to call the applet.
+ *
+ * @param unknown_type $form_token
+ * @return unknown
+ */
+function _imgupload_get_applet_tag($form_token) {
+    _imgupload_construct_absolute_url();
+    $applet_class = "\"org.aaron.image_applet.image_applet.class\"";
+    $applet_archive = "\""._imgupload_construct_absolute_url()."/image_applet.jar\"";
+    $path=url();
+    $clean_url = variable_get('clean_url', 0);
+    if (!$clean_url) 
+        $path .= '?q=';
+    $path .= 'admin/content/imgupload/1';
+    $applet_dbg =  variable_get('imgupload_debug',FALSE) == FALSE ? 
+         "FALSE" : "TRUE";
+    
+    // $path = '/php/upload.processor.php';
+    $applet_value = '<APPLET CODE=' .
+    $applet_class . ' CODEBASE="." ARCHIVE=' . $applet_archive;
+    $applet_value .= ' WIDTH=0 HEIGHT=0  MAYSCRIPT>';
+    $applet_value .= ' <PARAM NAME="path" VALUE="' . $path . '">';
+    $applet_value .= ' <PARAM NAME="form_token" VALUE="' . $form_token . '">';
+    $applet_value .= ' <PARAM NAME="scale_width" VALUE="' . variable_get('imgupload_defwidth',640) . '">';
+    $applet_value .= ' <PARAM NAME="scale_height" VALUE="' . variable_get('imgupload_defheight',480) . '">';
+    $applet_value .= ' <PARAM NAME="debug" VALUE="'.$applet_dbg.'">';
+    $applet_value .= '</APPLET>';
+    $rv = array (
+		'#value' => $applet_value
+    );
+    return $rv;
+}
+
+function _imgupload_get_vers_applet_tag() {
+    _imgupload_construct_absolute_url();
+    $applet_class = "\"org.aaron.image_applet.jre_vers.class\"";
+    $applet_archive = "\""._imgupload_construct_absolute_url()."/jre_vers.jar\"";
+    // $path = '/php/upload.processor.php';
+    $applet_value = '<APPLET CODE=' .
+    $applet_class . ' ARCHIVE=' . $applet_archive;
+    $applet_value .= ' WIDTH=640 HEIGHT=32 ALT="!!!Java is not installed or enabled, this applet will not work!!!">';
+    $applet_value .= '</APPLET>';
+    $rv = array (
+        '#value' => $applet_value
+    );
+    return $rv;
+}
+
+function _imgupload_debug($name, $var,$raw = FALSE) {
+    // dvm($var,$name);
+    if (variable_get('imgupload_debug', FALSE) == TRUE) {
+        ob_start();
+        var_dump($var, TRUE);
+        $output = ob_get_clean();
+        if ($raw == FALSE) {
+            $output = check_plain($output);
+            $output= '<pre>' . $name . $output . '</pre>';
+        } else {
+            $output= $name . "=>".$output;
+        } 
+        
+        drupal_set_message($output);    
+    }
+}
+
+/**
+ * init hook...
+ *
+ */
+function imgupload_init() {
+  $path = drupal_get_path('module', 'imgupload');
+  drupal_add_js($path."/imgupload.js");  
+}
+
+/**
+ * Create the initial form.
+ *
+ * @return unknown
+ */
+function _imgupload_create_gallery_initial() {
+    $form['gallery'] = array (
+    '#type' => 'fieldset',
+    '#prefix' => '<div id="imgupload_form_area">',
+    '#suffix' => '</div>',
+    '#title' => t('Upload Images Into...'), 
+	'#tree' => TRUE,
+    );
+
+	$form['gallery']['existing'] = array (
+	'#type' => 'submit',
+	'#name' => IMGUPLOAD_USE_EXISTING_GALLERY,
+	'#value' => t('Existing Gallery'),
+	'#id' => t('imgupload-use-existing'),
+    );
+	$form['gallery']['new'] = array (
+	'#type' => 'submit',
+	'#name' => IMGUPLOAD_CREATE_NEW_GALLERY,
+	'#value' => t('New Gallery'),
+	'#id' => t('imgupload-create-new'),
+    );
+     
+    $form['gallery']['applet'] = 
+        _imgupload_get_vers_applet_tag();
+    
+    return $form;
+}
+
+function imgupload_back_submit($form, & $form_state){
+  unset($form_state['storage']);
+  $form_state['redirect'] = 'admin/content/imgupload/0';
+}
+
+/**
+ * Create the form.  Depending on the form state, show buttons
+ * to create new gallery, use existing, drop-down list of galleries
+ * etc. 
+ *
+ * @param previous choice $previous
+ * @param drupal form data array $form_data
+ * @return form array for drupal
+ */
+function _imgupload_create_gallery_form($previous,$form_data) {
+    $galleries = 
+        db_query("SELECT * FROM {term_data} td,vocabulary v where v.module='image_gallery' and v.vid=td.vid order by td.tid DESC");
+    
+    $opts = array ();
+    $tids = array ();
+    while ($gallery = db_fetch_object($galleries)) {
+        $tid = $gallery->tid;
+        $gallery_query = db_query("SELECT td.name FROM {term_data} td WHERE td.tid=%d", $tid);
+        $opts[$tid] = db_fetch_object($gallery_query)->name;
+    }
+
+    $form['gallery'] = array (
+    '#type' => 'fieldset',
+    '#prefix' => '<div id="imgupload_form_area">',
+    '#suffix' => '</div>',
+    '#title' => t('Upload To Gallery'), 
+	'#tree' => TRUE,
+    );
+
+    $form['#attributes'] = array('enctype' => 'multipart/form-data');
+	$default_choice = '0';
+    if (count($opts) > 0) {
+        $keys = array_keys($opts);
+        $default_choice = $keys[0];
+    }
+	if (isset ($form_state['storage']['target_gallery'])) {
+	    $default_choice = $form_state['storage']['target_gallery'];
+	}
+	if ($previous == IMGUPLOAD_USE_EXISTING_GALLERY) {
+	$form['gallery']['selection'] = array (
+	'#type' => 'select',
+	'#name' => 'gallery_choice',
+	'#title' => t('Choose Target Image Gallery'
+	), '#default_value' => $default_choice, '#options' => $opts, //array('choice1','choice2'),
+	'#description' => 
+	    t('Choose the target gallery for your images.'),
+	); 
+	}
+
+	if ($previous == IMGUPLOAD_CREATE_NEW_GALLERY) {
+	    $form['gallery']['newname'] = array (
+		'#type' => 'textfield',
+			'#name' => IMGUPLOAD_NEW_GALLERY_TAG,
+			'#title' => t('Name'
+			), '#size' => 30, '#maxlength' => 64, '#description' => t('Enter the name of the new Gallery.'),);
+			$form['gallery']['newdesc'] = array (
+			'#type' => 'textarea',
+			'#name' => 'new_gallery_description',
+			'#title' => t('Description'
+		), '#rows' => 5, '#description' => t('Description'),);
+	} else
+	if ($previous == 'upload') {
+	    // _imgupload_debug("storage target_gallery is set: fs is", $form_state);
+	    $form_token = $form_data['clicked_button']['#post']['form_token'];
+	    $form['gallery']['applet'] = 
+            _imgupload_get_applet_tag($form_token);
+        $_SESSION['form_token']=$form_token;
+    	$form['gallery']['existing'] = array (
+    	'#type' => 'submit',
+    	'#name' => IMGUPLOAD_USE_EXISTING_GALLERY,
+    	'#value' => t('Existing Gallery'),
+    	'#id' => t('imgupload-use-existing'),
+        );
+    	$form['gallery']['new'] = array (
+    	'#type' => 'submit',
+    	'#name' => IMGUPLOAD_CREATE_NEW_GALLERY,
+    	'#value' => t('New Gallery'),
+    	'#id' => t('imgupload-create-new'),
+        );
+     return $form;   
+   	} 
+
+	$form['gallery']['submit'] = array (
+	'#type' => 'submit',
+	'#name' => 'upload',
+	'#value' => t('Browse for Upload'),
+	'#id' => t('imgload'),
+	'#ahah_bindings' => array (
+            array(
+                'wrapper' => 'imgupload_form_area',
+                 'event' => 'click',
+                  'path' => 'imgupload/img_update_js',
+              ),
+	));
+
+    $form['gallery']['back'] = array (
+    '#type' => 'submit',
+    '#name' => 'back',
+    '#value' => t('Back'),
+    '#id' => t('imgload-back'),
+    '#submit' => array('imgupload_back_submit'),
+    );   
+    	
+	//}
+	_imgupload_debug("form state 1", $form_state);
+	return ($form);
+}
+
+/**
+ * Submit hook.
+ *
+ * @param unknown_type $form
+ * @param unknown_type $form_state
+ */
+function imgupload_all_submit($form, & $form_state) {
+    $form_state['storage'] = array (
+		'target_gallery' => $form['#post']['gallery_choice']
+    );
+    $new_gallery = $form['gallery']['#post']['new_gallery_name'];
+    $new_desc = $form['gallery']['#post']['new_gallery_description'];
+    if (strlen($new_gallery) > 0) {
+        $vid = variable_get('image_gallery_nav_vocabulary', '');
+        $new_gallery = rtrim(str_replace("'","''",$new_gallery));
+        $new_desc = rtrim(str_replace("'","''",$new_desc)); 
+        db_query(
+          "INSERT INTO {term_data} (vid,name,description,weight) VALUES (%d,'".$new_gallery.
+              "','".$new_desc."',%d)",
+                $vid,1);
+        $tid = db_last_insert_id("term_data","tid");
+        db_query("INSERT INTO {term_hierarchy} (tid,parent) VALUES ('%d','%d')",$tid,0);
+        $choice = db_result(db_query("SELECT t.tid from {term_data} t WHERE t.name='".$new_gallery."'",
+            $new_gallery));
+    } else {
+        $choice = $form['gallery']['selection']['#post']['gallery_choice'];
+    }
+    $_SESSION['imgupload_current_gallery'] = $choice;
+    _imgupload_debug("Submit: choice ", $choice);
+    _imgupload_debug("submit: form state", $form_state);
+    _imgupload_debug("submit: form", $form);
+    _imgupload_debug("submit: POST:", $_POST);
+    _imgupload_debug("submit: FILES:", $_FILES);
+}
+
+/**
+ * Validate hook.
+ *
+ * @param unknown_type $form
+ * @param unknown_type $form_state
+ */
+function imgupload_all_validate(& $form, & $form_state) {
+    _imgupload_debug("validate: form state", $form_state);
+    _imgupload_debug("validate: form ", $form);
+    // $choice = $form['gallery']['selection']['#post']['gallery_choice'];
+    $choice = $form_state['clicked_button']['#name'];
+    //$new_gallery = $form['gallery']['selection']['#post']['new_gallery_name'];
+    // $new_description = $form['gallery']['selection']['#post']['new_gallery_description'];
+    // if (($choice == '0') && (strlen($new_gallery) <= 0)) {
+    if ($choice == IMGUPLOAD_CREATE_NEW_GALLERY) {
+    $form_state['storage'] = array (
+			'show_new_field' => "TRUE"
+			);
+			// $form['submit']['#parameters']['storage'] = "FOOOO";
+			// var_dump($form_state);
+			form_set_error('', t('Please select a name for the new gallery.'));
+    }
+}
+
+/**
+ * Find a filename based on $fn that is not in either 1) the system
+ * directory or 2) the destination directory.
+ *
+ * @param String $fn
+ * @param String $dest_path
+ * @return String basename part of filename
+ */
+function _imgupload_get_unique_file($fn,$dest_path) {
+    $system_path = file_directory_path() .'/'. variable_get('image_default_path', 'images');
+    
+    $file_path = pathinfo($fn);
+    $ext = $file_path['extension'];
+    $name = $file_path['filename'];
+    
+    $system_test = $system_path.'/'.$fn;
+    $dest_test = $dest_path.'/'.$fn;
+    
+    $sysex = is_file($system_test);
+    $destex = is_file($dest_test);
+    $counter = 1;
+    while ($sysex != FALSE || $destex != FALSE) {
+        $system_test = $system_path.'/'.$name.$counter.'.'.$ext;
+        $dest_test = $system_path.'/'.$name.$counter.'.'.$ext;
+        $fpi = pathinfo($dest_test);
+        $fn = $fpi['basename'];
+        $sysex = is_file($system_test);
+        $destex = is_file($dest_test);
+        $counter++;
+    }
+    
+    return $fn;
+}
+
+/**
+ * Handle form upload.  The user will never see this form;  it 
+ * is only called by the applet.
+ *
+ */
+function _imgupload_uploaded_file() {
+    $gallery = $_SESSION['imgupload_current_gallery'];
+    // Get the name of the gallery, use this as a dirname, so all images don't go in the same dir
+    $dirname = db_result(db_query("SELECT td.name FROM {term_data} td WHERE td.tid=%d", $gallery));
+
+    // Get the temp file that was already uploaded to the server.
+    $src = $_FILES['file']['tmp_name'];
+
+    // Munge the gallery name so it is a valid and reasonable dirname.
+    $dest = file_directory_path();
+
+    $dirname = str_replace(" ", "_", $dirname);
+    $dirname = str_replace(" ", "_", $dirname);
+    $special_chars = array (
+		";",
+		":",
+		"/",
+		"\\",
+		".",
+		"'",
+		"\"",
+        "%",
+		);
+
+    $dirname = str_replace($special_chars, "_", $dirname);
+	$dest = $dest . '/' . $dirname;
+	// Save the path part; we'll use it later
+	$dirname = $dest;
+	if (!file_exists($dest))
+	    mkdir($dest);
+
+	// Move the file into the gallery dir.
+	/**
+	 * Make sure that the dest filename is unique, both in the system
+	 * directory where the filename will live for awhile, and in the
+	 * ultimate destination directory.
+	 * **/
+	$targetfn = 
+	    _imgupload_get_unique_file($_FILES['file']['name'],$dest);
+	$dest = $dest . '/' . $targetfn;
+	
+	// If there is already a node in this gallery with this same name, we just 
+	// replace it.
+    _imgupload_debug("Unique fn is : ",$targetfn);
+
+    @ move_uploaded_file($src, $dest);
+	_imgupload_debug("rename upload: ",array($src,$dest),TRUE);
+	
+	// Make an entry in the files table.
+
+	// Add the image to the 'nodes' database
+	$node = new stdClass();
+	$node->type = 'image';
+	
+	$user = 
+	   db_fetch_object(db_query("SELECT u.*, s.* FROM {users} u INNER JOIN {sessions} s ON u.uid = s.uid WHERE s.sid = '%s'", session_id()));
+	
+	$node->uid = $user->uid;
+	$node->name = $user->name;
+	$node->title = basename($dest);
+	$node->comment = COMMENT_NODE_READ_WRITE;
+
+	_imgupload_debug("node to insert: ",$node,TRUE);
+	// Set the node's defaults... (copied this from node and comment.module)
+	$node_options = variable_get('node_options_' . $node->type, array (
+	'status',
+	'promote'
+	));
+	$node->status = in_array('status', $node_options);
+	$node->promote = in_array('promote', $node_options);
+
+	$node->new_file = TRUE;
+	$node->images[IMAGE_ORIGINAL] = $dest;
+
+	// Save the node.
+	$node = node_submit($node);
+	node_save($node);
+
+	_imgupload_debug("+++node after save: ",$node,TRUE);
+	// Force image module to generate the thumbnail.
+	$node->rebuild_images = TRUE;
+	$node->new_file = FALSE;
+	image_update($node);
+			
+	/**
+	 * Based on the unique filename which we just created, backtrace to
+	 * find the fid, nid and image id so we can name it what we want.
+	 */
+	$fid = db_result(db_query("SELECT fid FROM {files} f where filepath='".$node->images[IMAGE_ORIGINAL]."'"));
+	_imgupload_debug("+++ get fid from: ",$node->images[IMAGE_ORIGINAL],TRUE);
+	$nid = db_result(db_query("SELECT nid FROM {image} WHERE fid=".$fid));
+
+	$query_str = "SELECT i.fid,f.filepath FROM {image} i,{files} f WHERE i.nid=".$nid." AND i.fid=f.fid";
+	_imgupload_debug("pulling image info: ",$query_str,TRUE);
+	_imgupload_debug("fid is : ",$fid,TRUE);
+	$result = db_query($query_str);
+	while ($row = db_fetch_object($result)) {
+	    $path = $row->filepath;
+	    _imgupload_debug("file_move ",array($path,$dirname),TRUE);
+	    file_move($path,$dirname,FILE_EXISTS_REPLACE);
+	    $query_str = "UPDATE {files} SET filepath='".$dirname.'/'.basename($path)."' WHERE fid=".$row->fid;
+	    _imgupload_debug("updating record: ",$query_str,TRUE);
+	    db_query($query_str);
+    }
+		
+	// Now add the image to the image gallery
+	$vid = db_result(db_query("SELECT vid FROM {node} WHERE nid=".$nid));
+	$query_str = "INSERT INTO {term_node} (nid,vid,tid) VALUES ('".$nid."','".$vid."','".$gallery."')";
+	_imgupload_debug("insert term: ",$query_str,TRUE);
+	
+	db_query($query_str);	
+}
+
+function imgupload_upload_cb($form) {
+    // Called from the applet, debug stuff will show up 
+    // in broser java console debug window, if enabled. 
+    _imgupload_debug ('post is \n',$_POST,TRUE);
+    _imgupload_debug ('\nfiles is \n',$_FILES,TRUE);
+    _imgupload_debug ('context: ',$_SESSION,TRUE);
+    if ($_SESSION['form_token'] == $form['post']['form_token'])
+        _imgupload_uploaded_file();
+    else 
+        form_set_error('', t('Security violation!.'));    
+}
+
+/**
+ * Callback for form buttons and also menu choice.  
+ * Also called back from uploader applet.
+ *
+ * @param drupal form array - $form
+ * @param this is the submenu option $index
+ * @return $form in the event of form creation.
+ */
+function imgupload_all($form) {
+    _imgupload_debug("imgupload_all: form", $form);
+    _imgupload_debug("imgupload_all: menu index: ", $index);
+    _imgupload_debug("imgupload_all: get: ", $_GET);
+    if (empty($form['clicked_button'])) {
+        // First time, access from menu
+        return _imgupload_create_gallery_initial();
+    } else {
+        // User has selected a specific submenu. 
+        return _imgupload_create_gallery_form($form['clicked_button']['#name'],$form);
+    }
+
+    return "";
+}
+
+function imgupload_not_found($form) {
+    return drupal_not_found();       
+}
+
+/**
+ * perm hook...
+ *
+ * @return unknown
+ */
+function imgupload_perm() {
+    return array (
+		'access imgupload content',
+		'administer imgupload'
+		);
+}
+
+/**
+ * implement admin menu.  Just a  couple of options to set here.
+ *
+ * @return unknown
+ */
+function imgupload_admin() {
+    $alt_path = variable_get('imgupload_altpath',FALSE);
+    if (($alt_path == FALSE)|| (strlen($alt_path)==0)) {
+        $alt_path = _imgupload_construct_absolute_url();
+    }
+    variable_set('imgupload_altpath',$alt_path);
+    $form['imgupload_defwidth'] = array (
+		'#type' => 'textfield',
+		'#title' => t('Default width'
+		), '#default_value' => variable_get('imgupload_defwidth', '640'), '#size' => 4, 
+		'#maxlength' => 4, 
+		'#description' => t("Default width for compression of images."), 
+		);
+
+		$form['imgupload_defheight'] = array (
+		'#type' => 'textfield',
+		'#title' => t('Default height'
+		), '#default_value' => variable_get('imgupload_defheight', '480'), 
+		'#size' => 4, 
+		'#maxlength' => 4, 
+		'#description' => t("Default height for compression of images."), 
+		);
+
+		$form['imgupload_debug'] = array (
+		'#type' => 'checkbox',
+		'#title' => t('Debugging'
+		), '#default_value' => variable_get('imgupload_debug', FALSE), 
+		'#description' => t("Turns verbose debugging on (very annoying)."),
+        
+		$form['imgupload_altpath'] = array (
+        '#type' => 'textfield',
+        '#title' => t('Path to .jar files'),
+        '#default_value' => $alt_path, 
+        '#size' => 80, '#maxlength' => 120, 
+         '#description' => t("<b>Only change this if you have problems!   
+         Clear field to reset!</b><p>URL to locate applet archive (.jar) files. 
+         Make sure java is enabled, and your JRE is installed > 5.0 
+         (also called 1.5, go figure). If the URL that we generate is not correct,  
+         you can type it in manually.  Note that this is the URI path to the jar file, 
+         with out the jar file name itself. 
+         "),
+         '#required' => FALSE),
+		);
+
+	return system_settings_form($form);
+}
+
+/**
+ * Implementation of menu_hook.  Served up from content menu, allows users 
+ * to add gallery content.
+ *
+ * @return $items for menu
+ */
+function imgupload_menu() {
+
+    $items = array ();
+    
+    /**
+     * This is the menu item as it appears in the content menu.
+     */
+    $items['admin/content/imgupload/0'] = array (
+        'title' => 'Image Uploader (batch)',
+        'description' => t('Scale and Upload images <i>en masse</i> from your local machine.'),
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array (
+            'imgupload_all'
+            ),
+        'access arguments' => array (
+            'access imgupload content'
+            ),
+        'type' => MENU_NORMAL_ITEM,
+
+            );
+
+    /**
+     * This is a bogus path that we add to catch cases where 
+     * java applet asks for a class.  We want to send the applet
+     * a 'not found' URL instead of present a content page.
+     */
+    $items['admin/content/imgupload'] = array (
+        'title' => t('Image Uploader (batch)'),
+        'description' => t('Not Found.'),
+        'page callback' => 'drupal_get_form',
+        'page arguments' => array (
+            'imgupload_not_found'
+            ),
+        'access arguments' => array (
+            'access imgupload content'
+            ),
+        'type' => MENU_CALLBACK,
+
+            );
+
+    /**
+     * This is the path that the applet uses to upload the images.
+     */
+    $items['admin/content/imgupload/1'] = array (
+		'title' => 'Image Uploader',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array (
+			'imgupload_upload_cb',
+			),
+		'access arguments' => array (
+			'access imgupload content'
+			),
+		'type' => MENU_CALLBACK
+			);
+
+	/**
+	 * This is the admin settings path.
+	 */
+	 $items['admin/settings/imgupload'] = array (
+		'title' => t('Image Uploader Settings'),
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array (
+			'imgupload_admin'
+			),
+		'access arguments' => array (
+			'administer imgupload'
+			),
+		'type' => MENU_NORMAL_ITEM
+			);
+			return $items;
+}
+?>
